@@ -24,10 +24,21 @@ pub enum Side {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Target {
+    /// Whole steps (floor of the exact position).
     pub pos: i64,
+    /// Fraction of a step beyond `pos`, in 1/2^32 steps. Lets the step
+    /// generator space pulses evenly when the ratio isn't a whole number of
+    /// steps per control period.
+    pub frac: u32,
     /// True when the target won't advance with the spindle (disengaged, on a
     /// stop, waiting for sync). The stepper may brake towards it.
     pub is_final: bool,
+}
+
+impl Target {
+    pub const fn whole(pos: i64, is_final: bool) -> Self {
+        Self { pos, frac: 0, is_final }
+    }
 }
 
 pub struct Gearbox {
@@ -130,7 +141,7 @@ impl Gearbox {
     /// position. Call on every motion tick.
     pub fn update(&mut self, spindle: i64) -> Target {
         if !self.engaged || self.num == 0 {
-            return Target { pos: self.target, is_final: true };
+            return Target::whole(self.target, true);
         }
         self.normalize(spindle);
         let n = self.m.counts_per_rev;
@@ -150,7 +161,7 @@ impl Gearbox {
                     self.s_ref += b;
                     self.sync_q = None;
                 }
-                None => return Target { pos: self.target, is_final: true },
+                None => return Target::whole(self.target, true),
             }
         }
 
@@ -166,7 +177,10 @@ impl Gearbox {
             }
         }
         self.target = self.clamp(unclamped);
-        Target { pos: self.target, is_final: self.target != unclamped }
+        if self.target != unclamped {
+            return Target::whole(self.target, true);
+        }
+        Target { pos: self.target, frac: self.unclamped_frac(spindle), is_final: false }
     }
 
     fn clamp(&self, mut pos: i64) -> i64 {
@@ -186,6 +200,12 @@ impl Gearbox {
             None => (d as i128 * self.num as i128).div_euclid(self.den as i128) as i64,
         };
         self.p_ref + steps
+    }
+
+    /// Fractional step beyond `unclamped(spindle)`, in 1/2^32 steps.
+    fn unclamped_frac(&self, spindle: i64) -> u32 {
+        let rem = ((spindle - self.s_ref) as i128 * self.num as i128).rem_euclid(self.den as i128);
+        ((rem << 32) / self.den as i128) as u32
     }
 
     /// Spindle count at which the (unclamped) target equals `pos`.
@@ -229,7 +249,9 @@ mod tests {
     #[test]
     fn follows_spindle() {
         let mut g = engaged_1mm();
-        assert_eq!(g.update(1200), Target { pos: 100, is_final: false });
+        assert_eq!(g.update(1200), Target::whole(100, false));
+        // 1/12 step per count: 6 counts is half a step.
+        assert_eq!(g.update(1206), Target { pos: 100, frac: 1 << 31, is_final: false });
         assert_eq!(g.update(2400).pos, 200);
         assert_eq!(g.update(-2400).pos, -200);
     }
@@ -238,7 +260,7 @@ mod tests {
     fn disengaged_holds() {
         let mut g = Gearbox::new(M);
         g.set_pitch_du(10_000, 0);
-        assert_eq!(g.update(5000), Target { pos: 0, is_final: true });
+        assert_eq!(g.update(5000), Target::whole(0, true));
         g.engage(5000, 42);
         assert_eq!(g.update(5000 + 2400).pos, 242);
         g.disengage(242);
@@ -257,7 +279,7 @@ mod tests {
     fn stop_discards_whole_turns_and_keeps_phase() {
         let mut g = engaged_1mm();
         g.toggle_stop(Side::Left, 0, 100); // arrival at s=1200
-        assert_eq!(g.update(7200), Target { pos: 100, is_final: true });
+        assert_eq!(g.update(7200), Target::whole(100, true));
         // Reverse: leaves the stop at s=6000, i.e. 1200 mod 2400 like the arrival.
         assert_eq!(g.update(6100).pos, 100);
         assert_eq!(g.update(5760).pos, 80);
@@ -270,7 +292,7 @@ mod tests {
         g.update(7200);
         g.toggle_stop(Side::Left, 7200, 100);
         assert!(g.syncing());
-        assert_eq!(g.update(7300), Target { pos: 100, is_final: true });
+        assert_eq!(g.update(7300), Target::whole(100, true));
         assert_eq!(g.update(8399).pos, 100);
         // Phase reached (8400 = 1200 mod 2400): continue from the stop position.
         assert_eq!(g.update(8400).pos, 100);
@@ -295,7 +317,7 @@ mod tests {
     fn right_stop_clamps() {
         let mut g = engaged_1mm();
         g.toggle_stop(Side::Right, 0, -50);
-        assert_eq!(g.update(-24_000), Target { pos: -50, is_final: true });
+        assert_eq!(g.update(-24_000), Target::whole(-50, true));
         // Overshoot was trimmed to 1800 counts; 1200 counts forward is still on the stop.
         assert_eq!(g.update(-24_000 + 1200).pos, -50);
         assert_eq!(g.update(-24_000 + 2400).pos, 0);

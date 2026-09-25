@@ -17,7 +17,7 @@ pub mod jog;
 pub mod nextion;
 pub mod pitch;
 pub mod spindle;
-pub mod stepper;
+pub mod stepgen;
 pub mod ui;
 
 /// Fixed machine geometry needed to translate between spindle counts, motor

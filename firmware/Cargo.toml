@@ -16,7 +16,7 @@ els-core = { path = "../els-core" }
 esp-hal = { version = "~1.0", features = ["unstable"] }
 esp-rtos = { version = "0.2", features = ["embassy"] }
 esp-bootloader-esp-idf = "0.4"
-# Log over USB-Serial-JTAG: UART0's pins (GPIO43/44) drive the Nextion on the H5 board.
+# Log over USB-Serial-JTAG, leaving the UARTs free (on the S3/H5, UART0's pins drive the Nextion).
 esp-println = { version = "0.16", default-features = false, features = ["critical-section", "jtag-serial"] }
 esp-backtrace = { version = "0.18", features = ["panic-handler", "println"] }
 
@@ -28,6 +28,9 @@ static_cell = "2.1"
 heapless = "0.8"
 
 [features]
+# ESP32-C6 is the primary target (stable Rust). ESP32-S3 builds with
+# `cargo +esp build-s3` and needs the Xtensa toolchain from espup.
+default = ["esp32c6"]
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-rtos/esp32s3",

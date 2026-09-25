@@ -1,14 +1,27 @@
 //! Single-axis electronic gearbox: the Z lead screw follows the spindle at the
 //! selected pitch while the virtual half-nut is engaged.
 //!
-//! Tasks:
-//! - `motion_task` (high-priority interrupt executor, every MOTION_TICK_US):
-//!   spindle counter → gearbox → step/dir pins. Owns all motion state.
-//! - `touch_task`: parses Nextion touch events into keys.
-//! - `ui_task`: applies keys, sends commands to motion, redraws the display.
+//! Motion pipeline (all on a high-priority interrupt executor):
+//!
+//! ```text
+//!  PCNT spindle count ──► predict spindle at end of next segment
+//!                           │
+//!        commands ────────► gearbox (engaged) or jog (disengaged) ──► target
+//!                           │
+//!                         StepGen: velocity/accel-limited plan for one
+//!                         segment → exact STEP pulse times
+//!                           │
+//!                         RMT plays the segment in hardware (100 ns
+//!                         resolution) while the next one is planned
+//! ```
+//!
+//! The loop is paced by RMT: each iteration starts playing the segment
+//! planned last time, plans the following one, then waits for playback to
+//! finish. The UI and display run as ordinary tasks on the thread executor.
 #![no_std]
 #![no_main]
 
+#[macro_use]
 mod config;
 
 use core::cell::Cell;
@@ -18,20 +31,22 @@ use els_core::gearbox::{Gearbox, Side};
 use els_core::jog::{Bounds, Jog};
 use els_core::nextion::{self, Parser};
 use els_core::spindle::Spindle;
-use els_core::stepper::{Action, Stepper};
+use els_core::stepgen::{Segment, StepGen, MAX_STEPS_PER_SEGMENT};
 use els_core::ui::{Command, Key, Ui};
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::channel::Channel;
-use embassy_time::{Duration, Instant, Ticker, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::pcnt::{channel, unit::Unit, Pcnt};
+use esp_hal::rmt::{self, PulseCode, Rmt, TxChannelConfig, TxChannelCreator};
+use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{self, Uart, UartRx, UartTx};
 use esp_hal::Async;
@@ -55,14 +70,22 @@ static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::n
     turn_counts: 0,
 }));
 
+const STEP_ON: Level = if config::STEP_ACTIVE_LOW { Level::Low } else { Level::High };
+const STEP_OFF: Level = if config::STEP_ACTIVE_LOW { Level::High } else { Level::Low };
+
+/// RMT items for one segment: one per step plus the trailing idle/end item.
+type Codes = heapless::Vec<PulseCode, { MAX_STEPS_PER_SEGMENT + 1 }>;
+
 struct MotionHw {
     spindle: Unit<'static, 0>,
-    step: Output<'static>,
+    // The RMT channel handle isn't `Send`, so it's configured inside the task.
+    rmt: esp_hal::peripherals::RMT<'static>,
+    step: esp_hal::gpio::AnyPin<'static>,
     dir: Output<'static>,
     // Held so the pins stay configured.
     _enable: Output<'static>,
-    _enc_a: Input<'static>,
-    _enc_b: Input<'static>,
+    _encoder_a: Input<'static>,
+    _encoder_b: Input<'static>,
 }
 
 #[esp_rtos::main]
@@ -76,20 +99,13 @@ async fn main(spawner: Spawner) {
     esp_rtos::start(timg0.timer0);
     println!("ELS gearbox starting");
 
-    // NanoEls H5 pinout.
-    #[cfg(feature = "esp32s3")]
-    let (enc_a, enc_b, step, dir, enable, nx_tx, nx_rx) =
-        (p.GPIO13, p.GPIO14, p.GPIO35, p.GPIO42, p.GPIO41, p.GPIO43, p.GPIO44);
-    // ESP32-C6: no reference board yet, adjust to your wiring (see README).
-    #[cfg(feature = "esp32c6")]
-    let (enc_a, enc_b, step, dir, enable, nx_tx, nx_rx) =
-        (p.GPIO2, p.GPIO3, p.GPIO4, p.GPIO5, p.GPIO6, p.GPIO22, p.GPIO23);
+    let pins = take_pins!(p);
 
     // Spindle encoder: count both edges of A, direction from B (2 counts per line).
     // Open-drain encoder: the internal pull-ups supply the high level.
     let pull_up = InputConfig::default().with_pull(Pull::Up);
-    let enc_a = Input::new(enc_a, pull_up);
-    let enc_b = Input::new(enc_b, pull_up);
+    let encoder_a = Input::new(pins.encoder_a, pull_up);
+    let encoder_b = Input::new(pins.encoder_b, pull_up);
     let pcnt = Pcnt::new(p.PCNT);
     let unit = pcnt.unit0;
     let limit = els_core::spindle::PCNT_LIMIT as i16;
@@ -98,21 +114,21 @@ async fn main(spawner: Spawner) {
     unit.set_filter(Some(config::ENCODER_FILTER_CYCLES)).unwrap();
     unit.clear();
     let ch = &unit.channel0;
-    ch.set_edge_signal(enc_a.peripheral_input());
-    ch.set_ctrl_signal(enc_b.peripheral_input());
+    ch.set_edge_signal(encoder_a.peripheral_input());
+    ch.set_ctrl_signal(encoder_b.peripheral_input());
     ch.set_input_mode(channel::EdgeMode::Decrement, channel::EdgeMode::Increment);
     ch.set_ctrl_mode(channel::CtrlMode::Reverse, channel::CtrlMode::Keep);
     unit.resume();
 
-    let step_idle = if config::STEP_ACTIVE_LOW { Level::High } else { Level::Low };
     let enabled = if config::INVERT_ENABLE { Level::Low } else { Level::High };
     let hw = MotionHw {
         spindle: unit,
-        step: Output::new(step, step_idle, OutputConfig::default()),
-        dir: Output::new(dir, Level::Low, OutputConfig::default()),
-        _enable: Output::new(enable, enabled, OutputConfig::default()),
-        _enc_a: enc_a,
-        _enc_b: enc_b,
+        rmt: p.RMT,
+        step: pins.step,
+        dir: Output::new(pins.dir, Level::Low, OutputConfig::default()),
+        _enable: Output::new(pins.enable, enabled, OutputConfig::default()),
+        _encoder_a: encoder_a,
+        _encoder_b: encoder_b,
     };
 
     static MOTION_EXECUTOR: StaticCell<InterruptExecutor<2>> = StaticCell::new();
@@ -123,87 +139,132 @@ async fn main(spawner: Spawner) {
     let uart_config = uart::Config::default().with_baudrate(config::NEXTION_BAUD);
     let (rx, tx) = Uart::new(p.UART1, uart_config)
         .unwrap()
-        .with_tx(nx_tx)
-        .with_rx(nx_rx)
+        .with_tx(pins.nextion_tx)
+        .with_rx(pins.nextion_rx)
         .into_async()
         .split();
     spawner.spawn(touch_task(rx)).unwrap();
     spawner.spawn(ui_task(tx)).unwrap();
 }
 
+/// Convert a planned segment into RMT pulse codes.
+fn encode(segment: &Segment, out: &mut Codes) {
+    out.clear();
+    for item in segment.items(&config::stepgen()) {
+        let code = if item.pulse == 0 {
+            // Zero length marks the end of the transmission.
+            PulseCode::new(STEP_OFF, item.idle, STEP_OFF, 0)
+        } else {
+            PulseCode::new(STEP_OFF, item.idle, STEP_ON, item.pulse)
+        };
+        let _ = out.push(code);
+    }
+}
+
+/// Spindle position predicted `ahead_us` into the future from recent samples.
+struct SpindlePredictor {
+    history: [(u64, i64); config::SPINDLE_VELOCITY_SEGMENTS],
+    next: usize,
+}
+
+impl SpindlePredictor {
+    fn predict(&mut self, now_us: u64, counts: i64, ahead_us: u64) -> i64 {
+        let (then_us, then_counts) = self.history[self.next];
+        self.history[self.next] = (now_us, counts);
+        self.next = (self.next + 1) % self.history.len();
+        let dt = now_us.saturating_sub(then_us);
+        if then_us == 0 || dt == 0 {
+            return counts;
+        }
+        counts + (counts - then_counts) * ahead_us as i64 / dt as i64
+    }
+}
+
 #[embassy_executor::task]
 async fn motion_task(mut hw: MotionHw) {
+    // STEP pulses come from RMT channel 0; the pin idles inactive between segments.
+    let rmt = Rmt::new(hw.rmt, Rate::from_mhz(config::RMT_SOURCE_MHZ)).unwrap().into_async();
+    let mut step: rmt::Channel<'static, Async, rmt::Tx> = rmt
+        .channel0
+        .configure_tx(
+            hw.step,
+            TxChannelConfig::default()
+                .with_clk_divider(config::RMT_DIVIDER)
+                .with_idle_output(true)
+                .with_idle_output_level(STEP_OFF),
+        )
+        .unwrap();
+
     let machine = config::machine();
+    let segment_us = config::SEGMENT_US as u64;
     let mut spindle = Spindle::new(config::ENCODER_BACKLASH);
+    let mut predictor = SpindlePredictor { history: [(0, 0); config::SPINDLE_VELOCITY_SEGMENTS], next: 0 };
     let mut gearbox = Gearbox::new(machine);
-    let mut stepper = Stepper::new(config::stepper());
+    let mut stepgen = StepGen::new(config::stepgen());
     let mut jog = Jog::new(config::jog());
     let mut z_zero = 0i64;
     let mut turn_zero = 0i64;
-    let mut pulse_active = false;
-    let (step_on, step_off) = if config::STEP_ACTIVE_LOW { (Level::Low, Level::High) } else { (Level::High, Level::Low) };
 
     let mut rpm = 0u32;
     let mut rpm_start = (Instant::now().as_micros(), 0i64);
-    let mut next_status = 0u64;
+    let mut status_countdown = 0u32;
 
-    let mut ticker = Ticker::every(Duration::from_micros(config::MOTION_TICK_US));
+    // Double buffer: `playing` is on the wire while `planned` is filled.
+    let mut playing = Codes::new();
+    let mut planned = Codes::new();
+    let mut planned_positive = true;
+    encode(&Segment::default(), &mut planned);
+
     loop {
-        ticker.next().await;
-        let now = Instant::now().as_micros();
+        core::mem::swap(&mut playing, &mut planned);
+        // The previous segment has finished, so DIR can change now; the step
+        // generator keeps the first STEP edge after a change DIR_SETUP_NS away.
+        hw.dir.set_level(Level::from(planned_positive != config::INVERT_DIR));
+        // Starts the hardware immediately; awaited at the end of the loop.
+        let transmission = step.transmit(&playing);
 
+        let now = Instant::now().as_micros();
         let raw = hw.spindle.value();
         spindle.feed(if config::INVERT_SPINDLE { -raw } else { raw });
+        // The segment being planned ends two segments from now.
+        let s = predictor.predict(now, spindle.avg, 2 * segment_us);
 
         while let Ok(cmd) = COMMANDS.try_receive() {
             match cmd {
-                Command::SetPitchDu(du) => gearbox.set_pitch_du(du, spindle.avg),
+                Command::SetPitchDu(du) => gearbox.set_pitch_du(du, s),
                 Command::Engage => {
                     jog.cancel();
-                    gearbox.engage(spindle.avg, stepper.pos);
+                    gearbox.engage(s, stepgen.pos());
                     turn_zero = spindle.pos;
                 }
                 Command::Disengage => {
                     jog.cancel();
-                    gearbox.disengage(stepper.pos);
+                    gearbox.disengage(stepgen.pos());
                 }
                 Command::Jog { left, distance_du } if !gearbox.engaged() => {
                     let dir = if left { 1 } else { -1 };
-                    jog.press(dir, machine.du_to_steps(distance_du), stepper.pos, stepper.braking_steps(), now);
+                    jog.press(dir, machine.du_to_steps(distance_du), stepgen.pos(), stepgen.braking_steps(), now);
                 }
                 Command::Jog { .. } => {}
-                Command::JogRelease => jog.release(stepper.pos, stepper.braking_steps(), now),
-                Command::ToggleStop(side) => gearbox.toggle_stop(side, spindle.avg, stepper.pos),
-                Command::ZeroZ => z_zero = stepper.pos,
+                Command::JogRelease => jog.release(stepgen.pos(), stepgen.braking_steps(), now),
+                Command::ToggleStop(side) => gearbox.toggle_stop(side, s, stepgen.pos()),
+                Command::ZeroZ => z_zero = stepgen.pos(),
                 Command::ZeroTurns => turn_zero = spindle.pos,
             }
         }
 
         let target = if gearbox.engaged() {
-            stepper.set_speed_cap(None);
-            gearbox.update(spindle.avg)
+            stepgen.set_speed_cap(None);
+            gearbox.update(s)
         } else {
             let bounds = Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left));
-            let (target, cap) = jog.update(stepper.pos, bounds, now);
-            stepper.set_speed_cap(cap);
+            let (target, cap) = jog.update(stepgen.pos(), bounds, now);
+            stepgen.set_speed_cap(cap);
             target
         };
-        if pulse_active {
-            // End the pulse started last tick; no new edge this tick.
-            hw.step.set_level(step_off);
-            pulse_active = false;
-        } else {
-            match stepper.poll(now, target) {
-                Action::Idle => {}
-                Action::SetDirection(positive) => {
-                    hw.dir.set_level(Level::from(positive != config::INVERT_DIR));
-                }
-                Action::Step => {
-                    hw.step.set_level(step_on);
-                    pulse_active = true;
-                }
-            }
-        }
+        let segment = stepgen.next_segment(target);
+        planned_positive = segment.positive;
+        encode(&segment, &mut planned);
 
         if now - rpm_start.0 >= config::RPM_WINDOW_US {
             let counts = (spindle.pos - rpm_start.1).unsigned_abs();
@@ -212,20 +273,25 @@ async fn motion_task(mut hw: MotionHw) {
             rpm_start = (now, spindle.pos);
         }
 
-        if now >= next_status {
-            next_status = now + config::STATUS_PERIOD_US;
+        if status_countdown == 0 {
+            status_countdown = config::STATUS_EVERY_SEGMENTS;
             let status = Status {
                 engaged: gearbox.engaged(),
                 syncing: gearbox.syncing(),
                 jogging: jog.active(),
-                pos: stepper.pos,
+                pos: stepgen.pos(),
                 z_zero,
                 left_stop: gearbox.stop(Side::Left),
                 right_stop: gearbox.stop(Side::Right),
                 rpm,
                 turn_counts: spindle.pos - turn_zero,
             };
-            STATUS.lock(|s| s.set(status));
+            STATUS.lock(|st| st.set(status));
+        }
+        status_countdown -= 1;
+
+        if let Err(e) = transmission.await {
+            println!("rmt error: {:?}", e);
         }
     }
 }
@@ -267,7 +333,7 @@ async fn ui_task(mut tx: UartTx<'static, Async>) {
             if let Some(cmd) = out.command {
                 COMMANDS.send(cmd).await;
                 // Let the motion task apply it before we render its status.
-                Timer::after_micros(2 * config::MOTION_TICK_US).await;
+                Timer::after_micros(2 * config::SEGMENT_US as u64).await;
             }
             if out.beep {
                 write_all(&mut tx, nextion::BEEP).await;

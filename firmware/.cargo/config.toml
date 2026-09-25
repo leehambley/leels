@@ -1,11 +1,14 @@
-# Build/flash with the aliases, one per chip:
-#   cargo c6            ESP32-C6 (stable toolchain)
-#   cargo +esp s3       ESP32-S3 (Xtensa toolchain from `espup install`)
+# ESP32-C6 is the default target:
+#   cargo run --release      build, flash and monitor the C6
+#   cargo build --release
+# ESP32-S3 (secondary, needs the Xtensa toolchain from `espup install`):
+#   cargo +esp s3 / cargo +esp build-s3
+[build]
+target = "riscv32imac-unknown-none-elf"
+
 [alias]
-c6 = "run --release --features esp32c6 --target riscv32imac-unknown-none-elf"
-build-c6 = "build --release --features esp32c6 --target riscv32imac-unknown-none-elf"
-s3 = "run --release --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core"
-build-s3 = "build --release --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core"
+s3 = "run --release --no-default-features --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core"
+build-s3 = "build --release --no-default-features --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core"
 
 [target.riscv32imac-unknown-none-elf]
 runner = "espflash flash --monitor --chip esp32c6"

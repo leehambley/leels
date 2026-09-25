@@ -105,24 +105,24 @@ impl Jog {
             }
         }
         match self.state {
-            State::Idle => (Target { pos, is_final: true }, None),
+            State::Idle => (Target::whole(pos, true), None),
             State::Tap { target, held, .. } => {
                 let t = bounds.clamp(target);
                 if !held && pos == t {
                     self.state = State::Idle;
                 }
-                (Target { pos: t, is_final: true }, Some(tap_speed))
+                (Target::whole(t, true), Some(tap_speed))
             }
             State::Hold { dir, .. } => {
                 let t = bounds.clamp(pos.saturating_add(dir * HOLD_LOOKAHEAD));
-                (Target { pos: t, is_final: true }, Some(self.cap_now(now)))
+                (Target::whole(t, true), Some(self.cap_now(now)))
             }
             State::Stop { target, cap, .. } => {
                 let t = bounds.clamp(target);
                 if pos == t {
                     self.state = State::Idle;
                 }
-                (Target { pos: t, is_final: true }, Some(cap))
+                (Target::whole(t, true), Some(cap))
             }
         }
     }
@@ -150,7 +150,7 @@ mod tests {
         let mut j = Jog::new(CFG);
         j.press(1, 20, 100, 0, 0);
         j.release(100, 0, 50_000);
-        assert_eq!(j.update(100, FREE, 60_000), (Target { pos: 120, is_final: true }, Some(5000)));
+        assert_eq!(j.update(100, FREE, 60_000), (Target::whole(120, true), Some(5000)));
         // Still held long after the move is done: no hold because it was released.
         assert_eq!(j.update(120, FREE, 900_000).0.pos, 120);
         assert!(!j.active());
@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(j.update(500, FREE, 2_400_000).1, Some(1600));
         assert_eq!(j.update(900, FREE, 9_000_000).1, Some(5000));
         j.release(1000, 30, 9_000_001);
-        assert_eq!(j.update(1000, FREE, 9_000_002), (Target { pos: 1030, is_final: true }, Some(5000)));
+        assert_eq!(j.update(1000, FREE, 9_000_002), (Target::whole(1030, true), Some(5000)));
         j.update(1030, FREE, 9_000_100);
         assert!(!j.active());
     }
