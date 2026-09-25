@@ -41,6 +41,11 @@ Logs go to USB-Serial-JTAG, which leaves both UARTs free.
 
 ## Operation
 
+<img src="docs/images/nextion-page0.png" alt="Nextion Editor view of the 800 by 480 touch screen, each component labelled with its object name. Top row: RPM, ANGLE and TURNS readouts and a settings gear. Left: a large green Engage button, REVERSE, mm/inch, STEP CYCLE and pitch presets 0.01, 0.1 and 1.0. Middle: PITCH and Z POS readouts, Zero Z, JOG left and right, and JOG DIST. Right: a numeric keypad with a red backspace, a tall white OK, and left and right stop buttons." width="600">
+
+The screen layout in the Nextion Editor, with each component's object name.
+See [docs/nextion.md](docs/nextion.md) for what each one does.
+
 - **Pitch** is a number plus a unit. Type it on the keypad and press **OK**
   (the pending number shows in amber with a cursor; hold **<-** to clear it),
   or tap a preset (**0.01 / 0.1 / 1.0**). **REVERSE** flips direction.

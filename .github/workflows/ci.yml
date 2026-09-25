@@ -81,10 +81,17 @@ jobs:
           target/riscv32imac-unknown-none-elf/release/els
           target/cargo-timings/cargo-timing.html
           "${{ steps.cache.outputs.cache-hit }}"
+      # ELF (flash with `espflash flash <file>`), named with the short commit.
+      - name: Name firmware file
+        run: |
+          short=${GITHUB_SHA::7}
+          echo "SHORT_SHA=$short" >> "$GITHUB_ENV"
+          cp target/riscv32imac-unknown-none-elf/release/els "els-esp32c6-$short.elf"
       - uses: actions/upload-artifact@v7
         with:
-          name: els-esp32c6
-          path: firmware/target/riscv32imac-unknown-none-elf/release/els
+          name: els-esp32c6-${{ env.SHORT_SHA }}
+          path: firmware/els-esp32c6-${{ env.SHORT_SHA }}.elf
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: build-timings-esp32c6
@@ -117,10 +124,17 @@ jobs:
           target/xtensa-esp32s3-none-elf/release/els
           target/cargo-timings/cargo-timing.html
           "${{ steps.cache.outputs.cache-hit }}"
+      # ELF (flash with `espflash flash <file>`), named with the short commit.
+      - name: Name firmware file
+        run: |
+          short=${GITHUB_SHA::7}
+          echo "SHORT_SHA=$short" >> "$GITHUB_ENV"
+          cp target/xtensa-esp32s3-none-elf/release/els "els-esp32s3-$short.elf"
       - uses: actions/upload-artifact@v7
         with:
-          name: els-esp32s3
-          path: firmware/target/xtensa-esp32s3-none-elf/release/els
+          name: els-esp32s3-${{ env.SHORT_SHA }}
+          path: firmware/els-esp32s3-${{ env.SHORT_SHA }}.elf
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: build-timings-esp32s3
