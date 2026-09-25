@@ -30,9 +30,9 @@ mod storage;
 
 use core::cell::Cell;
 
-use els_core::display::{self, Status, Text, FIELDS};
+use els_core::display::{self, Status, Text, COLOUR_FIELDS, FIELDS};
 use els_core::gearbox::{Gearbox, Side};
-use els_core::jog::{Bounds, Jog};
+use els_core::jog::{Bounds, Jog, JogView};
 use els_core::nextion::{self, Parser};
 use els_core::settings::{Origin, Settings};
 use els_core::spindle::Spindle;
@@ -67,6 +67,7 @@ static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::n
     engaged: false,
     syncing: false,
     jogging: false,
+    jog: JogView::Idle,
     pos: 0,
     z_zero: 0,
     left_stop: None,
@@ -262,14 +263,19 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
                     jog.cancel();
                     gearbox.disengage(stepgen.pos());
                 }
-                Command::Jog { left, distance_du } if !gearbox.engaged() => {
+                Command::Jog { left, distance_du, level } if !gearbox.engaged() => {
                     let dir = if left { 1 } else { -1 };
-                    jog.press(dir, machine.du_to_steps(distance_du), stepgen.pos(), stepgen.braking_steps(), now);
+                    let distance = machine.du_to_steps(distance_du);
+                    jog.press(dir, distance, level.into(), stepgen.pos(), stepgen.braking_steps(), now);
                 }
                 Command::Jog { .. } => {}
                 Command::JogRelease => jog.release(stepgen.pos(), stepgen.braking_steps(), now),
                 Command::ToggleStop(side) => gearbox.toggle_stop(side, s, stepgen.pos()),
-                Command::ZeroZ => z_zero = stepgen.pos(),
+                Command::ZeroZ => {
+                    // The UI refuses this while engaged with stops set.
+                    z_zero = stepgen.pos();
+                    gearbox.clear_stops();
+                }
                 Command::ZeroTurns => turn_zero = spindle.pos,
             }
         }
@@ -300,6 +306,7 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
                 engaged: gearbox.engaged(),
                 syncing: gearbox.syncing(),
                 jogging: jog.active(),
+                jog: jog.view(stepgen.pos(), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now),
                 pos: stepgen.pos(),
                 z_zero,
                 left_stop: gearbox.stop(Side::Left),
@@ -365,6 +372,7 @@ async fn ui_task(
         Origin::Unsupported => ui.notify("Newer settings: defaults", boot_ms, 10_000),
     }
     let mut shown: Option<[Text; FIELDS.len()]> = None;
+    let mut shown_colours: Option<[(u16, u16); COLOUR_FIELDS.len()]> = None;
     let mut last_full = Instant::now();
     let mut saved_state = ui.operator_state();
     let mut state_changed_at: Option<Instant> = None;
@@ -426,6 +434,7 @@ async fn ui_task(
 
         if last_full.elapsed() >= Duration::from_millis(config::DISPLAY_FULL_REFRESH_MS) {
             shown = None;
+            shown_colours = None;
             last_full = Instant::now();
         }
         let status = STATUS.lock(|s| s.get());
@@ -440,6 +449,20 @@ async fn ui_task(
             }
         }
         shown = Some(fields);
+
+        let colours = display::field_colours(&ui, &status);
+        for (i, &(bco, pco)) in colours.iter().enumerate() {
+            if shown_colours.is_some_and(|c| c[i] == (bco, pco)) {
+                continue;
+            }
+            let mut cmd: heapless::Vec<u8, 64> = heapless::Vec::new();
+            if nextion::encode_num(&mut cmd, COLOUR_FIELDS[i], "bco", bco.into()).is_ok()
+                && nextion::encode_num(&mut cmd, COLOUR_FIELDS[i], "pco", pco.into()).is_ok()
+            {
+                write_all(&mut tx, &cmd).await;
+            }
+        }
+        shown_colours = Some(colours);
     }
 }
 

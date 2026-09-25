@@ -1,7 +1,7 @@
 //! Operator interface logic: turns key presses into pitch state and commands
 //! for the motion task. Knows nothing about the display hardware.
 
-use crate::display::Status;
+use crate::display::{Status, StopState};
 use crate::gearbox::Side;
 use crate::pitch::{parse_entry_milli, Pitch, Unit, JOG_SIZES_MILLI, STEP_SIZES_MILLI};
 use crate::settings::OperatorState;
@@ -11,6 +11,8 @@ pub enum Key {
     Digit(u8),
     Point,
     Backspace,
+    /// Backspace let go; a long hold clears the whole entry.
+    BackspaceReleased,
     Enter,
     Plus,
     Minus,
@@ -18,9 +20,14 @@ pub enum Key {
     ToggleUnit,
     /// Select pitch increment by index into [`STEP_SIZES_MILLI`].
     StepSize(u8),
+    /// Set the pitch magnitude directly, in thousandths of the current unit,
+    /// keeping direction and unit. Shortcut for typing it on the keypad.
+    PitchPreset(u32),
     CycleStep,
     Engage,
     Disengage,
+    /// Engage when idle, disengage when engaged or waiting for thread phase.
+    ToggleEngage,
     StopLeft,
     StopRight,
     ZeroZ,
@@ -54,7 +61,12 @@ pub enum Command {
     ToggleStop(Side),
     ZeroZ,
     ZeroTurns,
-    Jog { left: bool, distance_du: i64 },
+    /// `level` is the jog speed level matching the selected distance.
+    Jog {
+        left: bool,
+        distance_du: i64,
+        level: u8,
+    },
     JogRelease,
 }
 
@@ -75,7 +87,13 @@ impl Outcome {
     }
 }
 
+// Each jog distance has its own speed level.
+const _: () = assert!(JOG_SIZES_MILLI.len() == crate::jog::JOG_LEVELS);
+
 const MESSAGE_MS: u64 = 2_000;
+const STOPS_CLEARED_MS: u64 = 5_000;
+/// Holding backspace at least this long clears the whole entry.
+const BACKSPACE_CLEAR_MS: u64 = 700;
 const ENTRY_MAX_LEN: usize = 8;
 
 pub struct Ui {
@@ -86,6 +104,7 @@ pub struct Ui {
     message: Option<(&'static str, u64)>,
     max_pitch_du: i64,
     setup_active: bool,
+    backspace_down_at: Option<u64>,
 }
 
 impl Ui {
@@ -98,6 +117,7 @@ impl Ui {
             message: None,
             max_pitch_du,
             setup_active: false,
+            backspace_down_at: None,
         }
     }
 
@@ -143,7 +163,17 @@ impl Ui {
     /// `status` is the latest motion snapshot, used to refuse keys that
     /// don't make sense right now.
     pub fn handle(&mut self, key: Key, now_ms: u64, status: &Status) -> Outcome {
+        // Any press dismisses the current message (releases don't, so a jog
+        // refusal stays readable after letting go).
+        if !matches!(key, Key::Jog { pressed: false, .. } | Key::BackspaceReleased) {
+            self.message = None;
+        }
+        if status.engaged && changes_pitch(key) {
+            return self.reject("Disengage to change pitch", now_ms);
+        }
         match key {
+            Key::ToggleEngage if status.engaged || status.syncing => self.handle(Key::Disengage, now_ms, status),
+            Key::ToggleEngage => self.handle(Key::Engage, now_ms, status),
             Key::Digit(d) => self.edit(now_ms, |e| {
                 let frac = e.split_once('.').map_or(0, |(_, f)| f.len());
                 if frac >= 3 {
@@ -152,7 +182,15 @@ impl Ui {
                 e.push((b'0' + d) as char).is_ok()
             }),
             Key::Point => self.edit(now_ms, |e| !e.contains('.') && e.push('.').is_ok()),
+            Key::BackspaceReleased => {
+                let held = self.backspace_down_at.take().map_or(0, |t| now_ms.saturating_sub(t));
+                if held >= BACKSPACE_CLEAR_MS {
+                    self.entry = None;
+                }
+                Outcome::default()
+            }
             Key::Backspace => {
+                self.backspace_down_at = Some(now_ms);
                 if let Some(e) = &mut self.entry {
                     e.pop();
                     if e.is_empty() {
@@ -169,7 +207,7 @@ impl Ui {
                 },
             },
             // Don't engage with a half-typed pitch on screen.
-            Key::Engage if self.entry.is_some() => self.reject("Press Enter first", now_ms),
+            Key::Engage if self.entry.is_some() => self.reject("Press OK first", now_ms),
             Key::Engage if self.setup_active => self.reject("Leave setup first", now_ms),
             Key::Engage if status.jogging => self.reject("Wait for jog to stop", now_ms),
             Key::Setup if self.setup_active => Outcome::action(Action::ExitSetup),
@@ -187,8 +225,10 @@ impl Ui {
                 Outcome::cmd(Command::Disengage)
             }
             other => {
-                // Any other key abandons a pending entry.
-                self.entry = None;
+                // Any other key abandons a pending entry (a preset replaces it).
+                if self.entry.take().is_some() && !matches!(other, Key::PitchPreset(_)) {
+                    self.notify("Entry cancelled", now_ms, MESSAGE_MS);
+                }
                 self.handle_other(other, now_ms, status)
             }
         }
@@ -207,6 +247,7 @@ impl Ui {
             }
             Key::Reverse => self.try_set(Pitch { reversed: !p.reversed, ..p }, now_ms),
             Key::ToggleUnit => self.try_set(Pitch { unit: p.unit.toggled(), ..p }, now_ms),
+            Key::PitchPreset(m) => self.try_set(Pitch { magnitude_milli: m, ..p }, now_ms),
             Key::StepSize(i) => {
                 self.step_idx = (i as usize).min(STEP_SIZES_MILLI.len() - 1);
                 Outcome::default()
@@ -215,9 +256,24 @@ impl Ui {
                 self.step_idx = (self.step_idx + 1) % STEP_SIZES_MILLI.len();
                 Outcome::default()
             }
-            Key::StopLeft => Outcome::cmd(Command::ToggleStop(Side::Left)),
-            Key::StopRight => Outcome::cmd(Command::ToggleStop(Side::Right)),
-            Key::ZeroZ => Outcome::cmd(Command::ZeroZ),
+            Key::StopLeft | Key::StopRight => {
+                let side = if key == Key::StopLeft { Side::Left } else { Side::Right };
+                // A stray tap mid-pass must not let the carriage run past the stop.
+                if status.engaged && status.stop_state(side) == StopState::Set {
+                    return self.reject("Stop armed: wait or disengage", now_ms);
+                }
+                Outcome::cmd(Command::ToggleStop(side))
+            }
+            Key::ZeroZ => {
+                let stops_set = status.left_stop.is_some() || status.right_stop.is_some();
+                if stops_set && status.engaged {
+                    return self.reject("Disengage to zero Z", now_ms);
+                }
+                if stops_set {
+                    self.notify("Stops cleared", now_ms, STOPS_CLEARED_MS);
+                }
+                Outcome::cmd(Command::ZeroZ)
+            }
             Key::ZeroTurns => Outcome::cmd(Command::ZeroTurns),
             Key::JogCycle => {
                 self.jog_idx = (self.jog_idx + 1) % JOG_SIZES_MILLI.len();
@@ -226,9 +282,17 @@ impl Ui {
             Key::Jog { .. } if status.engaged => self.reject("Disengage to jog", now_ms),
             Key::Jog { left, .. } => {
                 let distance_du = self.jog_milli() as i64 * p.unit.du_per_milli();
-                Outcome::cmd(Command::Jog { left, distance_du })
+                Outcome::cmd(Command::Jog { left, distance_du, level: self.jog_idx as u8 })
             }
-            Key::Digit(_) | Key::Point | Key::Backspace | Key::Enter | Key::Engage | Key::Disengage | Key::Setup => {
+            Key::Digit(_)
+            | Key::Point
+            | Key::Backspace
+            | Key::BackspaceReleased
+            | Key::Enter
+            | Key::Engage
+            | Key::Disengage
+            | Key::ToggleEngage
+            | Key::Setup => {
                 unreachable!("handled in Ui::handle")
             }
         }
@@ -263,9 +327,25 @@ impl Ui {
     }
 }
 
+/// Keys that would change the pitch; refused while the half-nut is engaged.
+fn changes_pitch(key: Key) -> bool {
+    matches!(
+        key,
+        Key::Digit(_)
+            | Key::Point
+            | Key::Enter
+            | Key::Plus
+            | Key::Minus
+            | Key::PitchPreset(_)
+            | Key::Reverse
+            | Key::ToggleUnit
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jog::JogView;
 
     const MAX: i64 = 254_000;
 
@@ -273,6 +353,7 @@ mod tests {
         engaged: false,
         syncing: false,
         jogging: false,
+        jog: JogView::Idle,
         pos: 0,
         z_zero: 0,
         left_stop: None,
@@ -358,14 +439,121 @@ mod tests {
     }
 
     #[test]
+    fn pitch_preset_sets_magnitude_and_cancels_entry() {
+        let mut ui = Ui::new(MAX);
+        press(&mut ui, &[Key::Reverse, Key::Digit(7)]);
+        assert_eq!(ui.handle(Key::PitchPreset(100), 0, &IDLE).command, Some(Command::SetPitchDu(-1_000)));
+        assert_eq!(ui.entry(), None);
+        assert!(ui.handle(Key::ToggleUnit, 0, &IDLE).command.is_some());
+        // Inch unit: 1.0" is within the limit, 10" is not.
+        assert_eq!(ui.handle(Key::PitchPreset(1_000), 0, &IDLE).command, Some(Command::SetPitchDu(-254_000)));
+        assert!(ui.handle(Key::PitchPreset(10_000), 0, &IDLE).beep);
+    }
+
+    #[test]
+    fn armed_stop_only_clears_when_parked_or_disengaged() {
+        let mut ui = Ui::new(MAX);
+        let clear = Some(Command::ToggleStop(Side::Left));
+        let running = Status { engaged: true, pos: 10, left_stop: Some(500), ..IDLE };
+        assert!(ui.handle(Key::StopLeft, 0, &running).beep);
+        let parked = Status { pos: 500, ..running };
+        assert_eq!(ui.handle(Key::StopLeft, 0, &parked).command, clear);
+        let idle_set = Status { engaged: false, ..running };
+        assert_eq!(ui.handle(Key::StopLeft, 0, &idle_set).command, clear);
+        // Setting a stop is always allowed.
+        let unset = Status { left_stop: None, ..running };
+        assert_eq!(ui.handle(Key::StopLeft, 0, &unset).command, clear);
+    }
+
+    #[test]
+    fn zero_z_clears_stops_with_message() {
+        let mut ui = Ui::new(MAX);
+        let stops = Status { left_stop: Some(5), ..IDLE };
+        assert_eq!(ui.handle(Key::ZeroZ, 0, &stops).command, Some(Command::ZeroZ));
+        assert_eq!(ui.message(4_999), Some("Stops cleared"));
+        assert_eq!(ui.message(5_000), None);
+        // Dismissed by the next press, but not by a jog release.
+        ui.handle(Key::ZeroZ, 0, &stops);
+        ui.handle(Key::Jog { left: true, pressed: false }, 1, &IDLE);
+        assert_eq!(ui.message(2), Some("Stops cleared"));
+        ui.handle(Key::JogCycle, 3, &IDLE);
+        assert_eq!(ui.message(4), None);
+        // No stops: no message. Engaged with a stop: refused.
+        ui.handle(Key::ZeroZ, 0, &IDLE);
+        assert_eq!(ui.message(0), None);
+        let running = Status { engaged: true, ..stops };
+        assert!(ui.handle(Key::ZeroZ, 0, &running).beep);
+    }
+
+    #[test]
+    fn pitch_locked_while_engaged() {
+        let mut ui = Ui::new(MAX);
+        let engaged = Status { engaged: true, ..IDLE };
+        for k in
+            [Key::Digit(1), Key::Point, Key::Enter, Key::PitchPreset(100), Key::Reverse, Key::ToggleUnit, Key::Plus]
+        {
+            let out = ui.handle(k, 0, &engaged);
+            assert!(out.beep && out.command.is_none(), "{k:?}");
+            assert_eq!(ui.message(0), Some("Disengage to change pitch"));
+        }
+        assert_eq!(ui.entry(), None);
+        // Other keys still work.
+        assert_eq!(ui.handle(Key::ZeroTurns, 0, &engaged).command, Some(Command::ZeroTurns));
+    }
+
+    #[test]
+    fn backspace_hold_clears_entry() {
+        let mut ui = Ui::new(MAX);
+        press(&mut ui, &[Key::Digit(1), Key::Digit(2), Key::Digit(3)]);
+        ui.handle(Key::Backspace, 1_000, &IDLE);
+        ui.handle(Key::BackspaceReleased, 1_100, &IDLE); // short tap: one character
+        assert_eq!(ui.entry(), Some("12"));
+        ui.handle(Key::Backspace, 2_000, &IDLE);
+        ui.handle(Key::BackspaceReleased, 2_700, &IDLE); // long hold: all of it
+        assert_eq!(ui.entry(), None);
+    }
+
+    #[test]
+    fn other_keys_cancel_entry_with_message() {
+        let mut ui = Ui::new(MAX);
+        press(&mut ui, &[Key::Digit(2)]);
+        ui.handle(Key::JogCycle, 0, &IDLE);
+        assert_eq!(ui.entry(), None);
+        assert_eq!(ui.message(0), Some("Entry cancelled"));
+        // A preset replaces the entry without complaint.
+        press(&mut ui, &[Key::Digit(2), Key::PitchPreset(100)]);
+        assert_eq!(ui.message(0), None);
+    }
+
+    #[test]
+    fn toggle_engage_follows_status() {
+        let mut ui = Ui::new(MAX);
+        assert_eq!(ui.handle(Key::ToggleEngage, 0, &IDLE).command, Some(Command::Engage));
+        let engaged = Status { engaged: true, ..IDLE };
+        assert_eq!(ui.handle(Key::ToggleEngage, 0, &engaged).command, Some(Command::Disengage));
+        let syncing = Status { syncing: true, ..IDLE };
+        assert_eq!(ui.handle(Key::ToggleEngage, 0, &syncing).command, Some(Command::Disengage));
+        // Engaging keeps its guards; disengaging never refuses.
+        ui.handle(Key::Digit(2), 0, &IDLE);
+        assert!(ui.handle(Key::ToggleEngage, 0, &IDLE).beep);
+        assert_eq!(ui.handle(Key::ToggleEngage, 0, &engaged).command, Some(Command::Disengage));
+    }
+
+    #[test]
     fn jog_press_release_and_cycle() {
         let mut ui = Ui::new(MAX);
         let left = |pressed| Key::Jog { left: true, pressed };
-        assert_eq!(ui.handle(left(true), 0, &IDLE).command, Some(Command::Jog { left: true, distance_du: 1_000 }));
+        assert_eq!(
+            ui.handle(left(true), 0, &IDLE).command,
+            Some(Command::Jog { left: true, distance_du: 1_000, level: 1 })
+        );
         assert_eq!(ui.handle(left(false), 0, &IDLE).command, Some(Command::JogRelease));
         press(&mut ui, &[Key::JogCycle, Key::ToggleUnit]);
         assert_eq!(ui.jog_milli(), 1_000);
-        assert_eq!(ui.handle(left(true), 0, &IDLE).command, Some(Command::Jog { left: true, distance_du: 254_000 }));
+        assert_eq!(
+            ui.handle(left(true), 0, &IDLE).command,
+            Some(Command::Jog { left: true, distance_du: 254_000, level: 2 })
+        );
         let engaged = Status { engaged: true, ..IDLE };
         assert!(ui.handle(left(true), 0, &engaged).beep);
         assert_eq!(ui.handle(left(false), 0, &engaged).command, Some(Command::JogRelease));

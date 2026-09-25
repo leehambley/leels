@@ -39,38 +39,45 @@ impl Parser {
     }
 }
 
-/// Component ids on page 0 of the HMI. Existing NanoEls H5 ids are kept where
-/// the function is unchanged; 51+ are new buttons. See docs/nextion.md.
+/// Component ids on page 0 of the Lee-LS HMI. See docs/nextion.md.
 pub fn key_for(touch: Touch) -> Option<Key> {
     if touch.page != 0 {
         return None;
     }
-    // Jog buttons need both press and release events.
+    // Jog buttons and backspace need both press and release events.
     match touch.component {
-        48 => return Some(Key::Jog { left: true, pressed: touch.pressed }),
-        49 => return Some(Key::Jog { left: false, pressed: touch.pressed }),
+        10 if !touch.pressed => return Some(Key::BackspaceReleased), // bBackspace hold
+        29 => return Some(Key::Jog { left: true, pressed: touch.pressed }), // bJogL
+        30 => return Some(Key::Jog { left: false, pressed: touch.pressed }), // bJogR
         _ if !touch.pressed => return None,
         _ => {}
     }
     Some(match touch.component {
-        3 | 23 => Key::Disengage, // bStatus, bOff
-        5 => Key::Reverse,        // bReverse
-        6 => Key::ToggleUnit,     // bMeasure
-        7 => Key::CycleStep,      // bStep / tStepVal
-        9 | 10 => Key::ZeroTurns, // tTurns, tAngle
-        21 => Key::ZeroZ,         // bZ0
-        24 => Key::Backspace,
-        25 => Key::Engage, // bOn
-        c @ 26..=35 => Key::Digit(c - 26),
-        40 => Key::StopLeft,
-        41 => Key::StopRight,
-        42 => Key::Plus,
-        43 => Key::Minus,
-        51 => Key::Enter,
-        52 => Key::Point,
-        c @ 53..=57 => Key::StepSize(c - 53),
-        58 => Key::JogCycle,
-        59 => Key::Setup,
+        3 | 4 => Key::ZeroTurns, // tAngle, tTurns
+        5 => Key::StopLeft,      // bLeftStop
+        6 => Key::StopRight,     // bRightStop
+        7 => Key::Digit(1),      // bNum1
+        8 => Key::Digit(2),
+        9 => Key::Digit(3),
+        10 => Key::Backspace, // bBackspace
+        11 => Key::Digit(4),
+        12 => Key::Digit(5),
+        13 => Key::Digit(6),
+        14 => Key::Digit(7),
+        15 => Key::Digit(8),
+        16 => Key::Digit(9),
+        17 => Key::Digit(0),
+        18 => Key::Enter,              // bNumOK
+        19 => Key::Point,              // bNumPeriod
+        20 => Key::ToggleEngage,       // bToggleEngaged
+        21 => Key::Reverse,            // bReverseToggle
+        22 => Key::ToggleUnit,         // bUnitsToggle
+        25 => Key::PitchPreset(10),    // bPitch001 "0.01"
+        26 => Key::PitchPreset(100),   // bPitch01 "0.1"
+        27 => Key::PitchPreset(1_000), // bPitch1 "1.0"
+        28 => Key::ZeroZ,              // bZeroZ
+        31 => Key::JogCycle,           // bCycleJogDist
+        33 => Key::Setup,              // bSettings
         _ => return None,
     })
 }
@@ -97,6 +104,22 @@ pub fn encode_text<const N: usize>(out: &mut heapless::Vec<u8, N>, id: &str, tex
     out.extend_from_slice(&TERM).map_err(|_| BufferFull)
 }
 
+/// Append `id.attr=value` + terminator, e.g. `bLeftStop.bco=63488`.
+pub fn encode_num<const N: usize>(
+    out: &mut heapless::Vec<u8, N>,
+    id: &str,
+    attr: &str,
+    value: u32,
+) -> Result<(), BufferFull> {
+    use core::fmt::Write;
+    let mut num: heapless::String<10> = heapless::String::new();
+    let _ = write!(num, "{value}");
+    for part in [id.as_bytes(), b".", attr.as_bytes(), b"=", num.as_bytes(), &TERM] {
+        out.extend_from_slice(part).map_err(|_| BufferFull)?;
+    }
+    Ok(())
+}
+
 /// Short beep through the display's speaker.
 pub const BEEP: &[u8] = b"play 0,0,0\xFF\xFF\xFF";
 
@@ -107,27 +130,55 @@ mod tests {
     #[test]
     fn parses_touch_events_and_ignores_noise() {
         let mut p = Parser::default();
-        let bytes = [0x88, 0xFF, 0xFF, 0xFF, 0x65, 0x00, 0x19, 0x01, 0xFF, 0xFF, 0xFF];
+        let bytes = [0x88, 0xFF, 0xFF, 0xFF, 0x65, 0x00, 0x14, 0x01, 0xFF, 0xFF, 0xFF];
         let events: Vec<_> = bytes.iter().filter_map(|&b| p.push(b)).collect();
-        assert_eq!(events, vec![Touch { page: 0, component: 25, pressed: true }]);
-        assert_eq!(key_for(events[0]), Some(Key::Engage));
+        assert_eq!(events, vec![Touch { page: 0, component: 20, pressed: true }]);
+        assert_eq!(key_for(events[0]), Some(Key::ToggleEngage));
+    }
+
+    /// Bytes captured from the real display on the Lee-LS HMI.
+    #[test]
+    fn captured_display_trace() {
+        let bytes = [
+            0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, // power-on
+            0x88, 0xFF, 0xFF, 0xFF, // ready
+            0x65, 0x00, 0x13, 0x01, 0xFF, 0xFF, 0xFF, // bNumPeriod press
+            0x65, 0x00, 0x14, 0x01, 0xFF, 0xFF, 0xFF, // bToggleEngaged press
+            0x65, 0x00, 0x1C, 0x01, 0xFF, 0xFF, 0xFF, // bZeroZ press
+            0x65, 0x00, 0x1C, 0x00, 0xFF, 0xFF, 0xFF, // bZeroZ release
+        ];
+        let mut p = Parser::default();
+        let keys: Vec<_> = bytes.iter().filter_map(|&b| p.push(b)).map(key_for).collect();
+        assert_eq!(keys, [Some(Key::Point), Some(Key::ToggleEngage), Some(Key::ZeroZ), None]);
     }
 
     #[test]
     fn maps_digits_and_steps() {
         let t = |c| Touch { page: 0, component: c, pressed: true };
-        assert_eq!(key_for(t(26)), Some(Key::Digit(0)));
-        assert_eq!(key_for(t(35)), Some(Key::Digit(9)));
-        assert_eq!(key_for(t(57)), Some(Key::StepSize(4)));
-        assert_eq!(key_for(Touch { pressed: false, ..t(26) }), None);
-        assert_eq!(key_for(Touch { pressed: false, ..t(49) }), Some(Key::Jog { left: false, pressed: false }));
-        assert_eq!(key_for(t(58)), Some(Key::JogCycle));
+        let digits = [17, 7, 8, 9, 11, 12, 13, 14, 15, 16];
+        for (d, &c) in digits.iter().enumerate() {
+            assert_eq!(key_for(t(c)), Some(Key::Digit(d as u8)));
+        }
+        assert_eq!(key_for(t(27)), Some(Key::PitchPreset(1_000)));
+        assert_eq!(key_for(Touch { pressed: false, ..t(17) }), None);
+        assert_eq!(key_for(Touch { pressed: false, ..t(30) }), Some(Key::Jog { left: false, pressed: false }));
+        assert_eq!(key_for(t(31)), Some(Key::JogCycle));
+        // Static labels and unused ids do nothing.
+        assert_eq!(key_for(t(1)), None);
+        assert_eq!(key_for(t(24)), None);
+    }
+
+    #[test]
+    fn encodes_number() {
+        let mut v: heapless::Vec<u8, 64> = heapless::Vec::new();
+        encode_num(&mut v, "bLeftStop", "bco", 63488).unwrap();
+        assert_eq!(&v[..], b"bLeftStop.bco=63488\xFF\xFF\xFF");
     }
 
     #[test]
     fn encodes_text() {
         let mut v: heapless::Vec<u8, 64> = heapless::Vec::new();
-        encode_text(&mut v, "tAngleVal", "12.5°").unwrap();
-        assert_eq!(&v[..], b"tAngleVal.txt=\"12.5\xDF\"\xFF\xFF\xFF");
+        encode_text(&mut v, "tAngle", "12.5°").unwrap();
+        assert_eq!(&v[..], b"tAngle.txt=\"12.5\xDF\"\xFF\xFF\xFF");
     }
 }

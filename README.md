@@ -41,26 +41,32 @@ Logs go to USB-Serial-JTAG, which leaves both UARTs free.
 
 ## Operation
 
-- **Pitch** is a number plus a unit. Choose a step size (.001 / .01 / .1 / 1 / 10)
-  and use **+/−**, or type a number with a decimal point and press **Enter**.
-  **Rev** flips direction. **MM/IN** keeps the number and changes the unit
-  (0.100 mm becomes 0.100"). Pitch is capped at 1".
-- **Engage** closes the virtual half-nut at the current position.
-  **Disengage** stops the lead screw immediately. Changing the pitch while
-  engaged continues smoothly from the current position.
-- **Stops**: pressing Stop L or Stop R sets that stop at the current position,
-  and pressing it again clears it. Stops apply only while engaged, because the
-  axis doesn't move otherwise. The carriage parks on a stop while the spindle
-  keeps turning. Reverse the spindle and it leaves the stop within one turn,
-  still in thread phase. If you clear a stop while resting on it, the screen
-  shows `SYN` and the carriage waits for the thread phase before moving on.
+- **Pitch** is a number plus a unit. Type it on the keypad and press **OK**
+  (the pending number shows in amber with a cursor; hold **<-** to clear it),
+  or tap a preset (**0.01 / 0.1 / 1.0**). **REVERSE** flips direction.
+  **UNIT** keeps the number and changes the unit (0.100 mm becomes 0.100").
+  Pitch is capped at 1". Pitch can't be changed while engaged: disengage
+  first.
+- **Engage / Disengage** is one button: it closes the virtual half-nut at the
+  current position, or opens it, stopping the lead screw immediately.
+- **Stops**: pressing Stop L or Stop R sets that stop at the current position.
+  The button turns amber and shows the stop's Z; it turns red with `AT STOP`
+  while the carriage rests on it. Pressing it again clears it, but only while
+  disengaged or resting on the stop. Stops limit threading and jogging. The
+  carriage parks on a stop while the spindle keeps turning. Reverse the
+  spindle and it leaves the stop within one turn, still in thread phase. If
+  you clear a stop while resting on it, the engage button shows `Syncing` and
+  the carriage waits for the thread phase before moving on. **Zero Z** also
+  clears both stops.
 - **Jog** (disengaged only; refused with a beep while engaged): **Jog L / Jog R**
   move the carriage. Stops limit jogging too.
-  - A **tap** moves exactly the jog distance (.01 / .1 / 1 / 10 in the current
-    unit, cycled with its own button). Repeated taps add up.
-  - A **hold** longer than 0.4 s runs continuously. It starts at 0.5 mm/s and
-    steps up to 2, then 8, then 25 mm/s every second. Releasing brakes to a
-    stop. Pressing the other direction while moving also brakes.
+  - The jog distance (.01 / .1 / 1 / 10 in the current unit, cycled with its
+    own button) also sets the jog speed: 0.5 / 2 / 8 / 25 mm/s.
+  - A **tap** moves exactly the jog distance at that speed. Repeated taps add
+    up.
+  - A **hold** longer than 0.4 s runs continuously, starting at the same speed
+    and stepping up one speed every second until 25 mm/s. Releasing brakes to
+    a stop. Pressing the other direction while moving also brakes.
   - Speeds and timings are set on the setup page.
 - **Setup** (only when disengaged and not jogging) turns on a WiFi hotspot,
   `LEELS-SETUP` with password `els-setup`. Both are shown on the display.

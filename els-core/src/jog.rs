@@ -1,9 +1,12 @@
 //! Left/right jogging while the half-nut is disengaged.
 //!
-//! - A tap moves exactly the selected jog distance. Further taps in the same
-//!   direction add to the move.
-//! - Holding the button past `hold_after_us` switches to continuous motion.
-//!   The speed limit steps up through `speeds` every `level_every_us`.
+//! - The selected jog distance also picks a speed level (index into `speeds`):
+//!   the smallest distance is the slowest.
+//! - A tap moves exactly the selected jog distance at that level's speed.
+//!   Further taps in the same direction add to the move.
+//! - Holding the button past `hold_after_us` switches to continuous motion,
+//!   starting at the same level and stepping up one level every
+//!   `level_every_us` until the fastest.
 //! - Releasing a hold brakes to a stop. Pressing the other direction while
 //!   moving also brakes.
 //!
@@ -21,17 +24,29 @@ const HOLD_LOOKAHEAD: i64 = 1 << 40;
 pub struct JogConfig {
     pub hold_after_us: u64,
     pub level_every_us: u64,
-    /// Speed limit per hold level in steps/s, slowest first. Taps use the
-    /// last one.
+    /// Speed limit per level in steps/s, slowest first.
     pub speeds: [u32; JOG_LEVELS],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Idle,
-    Tap { target: i64, dir: i64, pressed_at: u64, held: bool },
-    Hold { dir: i64, since: u64 },
+    Tap { target: i64, dir: i64, pressed_at: u64, held: bool, level: usize },
+    Hold { dir: i64, since: u64, base: usize },
     Stop { target: i64, dir: i64, cap: u32 },
+}
+
+/// What the jog is doing, for the display.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum JogView {
+    #[default]
+    Idle,
+    /// Tap move under way; steps still to travel (after stops).
+    Tap { remaining: i64 },
+    /// Continuous hold; speed level 1..=JOG_LEVELS.
+    Hold { level: u8 },
+    /// Braking after a release or an opposite press.
+    Braking,
 }
 
 /// Lower/upper position limits (right stop, left stop).
@@ -65,9 +80,21 @@ impl Jog {
         self.state != State::Idle
     }
 
-    /// Button pressed. `dir` is +1 (left) or -1 (right); `distance` in steps.
-    pub fn press(&mut self, dir: i64, distance: i64, pos: i64, braking: i64, now: u64) {
-        let tap_from = |start: i64| State::Tap { target: start + dir * distance, dir, pressed_at: now, held: true };
+    pub fn view(&self, pos: i64, bounds: Bounds, now: u64) -> JogView {
+        match self.state {
+            State::Idle => JogView::Idle,
+            State::Tap { target, .. } => JogView::Tap { remaining: (bounds.clamp(target) - pos).abs() },
+            State::Hold { .. } => JogView::Hold { level: self.level_now(now) as u8 + 1 },
+            State::Stop { .. } => JogView::Braking,
+        }
+    }
+
+    /// Button pressed. `dir` is +1 (left) or -1 (right); `distance` in steps;
+    /// `level` is the speed level that goes with the selected distance.
+    pub fn press(&mut self, dir: i64, distance: i64, level: usize, pos: i64, braking: i64, now: u64) {
+        let level = level.min(JOG_LEVELS - 1);
+        let tap_from =
+            |start: i64| State::Tap { target: start + dir * distance, dir, pressed_at: now, held: true, level };
         self.state = match self.state {
             State::Idle => tap_from(pos),
             State::Tap { target, dir: d, .. } if d == dir => tap_from(target),
@@ -98,10 +125,9 @@ impl Jog {
 
     /// Target and speed cap for this tick.
     pub fn update(&mut self, pos: i64, bounds: Bounds, now: u64) -> (Target, Option<u32>) {
-        let tap_speed = self.cfg.speeds[JOG_LEVELS - 1];
-        if let State::Tap { dir, pressed_at, held: true, .. } = self.state {
+        if let State::Tap { dir, pressed_at, held: true, level, .. } = self.state {
             if now - pressed_at >= self.cfg.hold_after_us {
-                self.state = State::Hold { dir, since: now };
+                self.state = State::Hold { dir, since: now, base: level };
             }
         }
         match self.state {
@@ -111,7 +137,7 @@ impl Jog {
                 if !held && pos == t {
                     self.state = State::Idle;
                 }
-                (Target::whole(t, true), Some(tap_speed))
+                (Target::whole(t, true), Some(self.cap_now(now)))
             }
             State::Hold { dir, .. } => {
                 let t = bounds.clamp(pos.saturating_add(dir * HOLD_LOOKAHEAD));
@@ -127,14 +153,19 @@ impl Jog {
         }
     }
 
-    fn cap_now(&self, now: u64) -> u32 {
+    fn level_now(&self, now: u64) -> usize {
         match self.state {
-            State::Hold { since, .. } => {
-                let level = ((now - since) / self.cfg.level_every_us.max(1)) as usize;
-                self.cfg.speeds[level.min(JOG_LEVELS - 1)]
+            State::Tap { level, .. } => level,
+            State::Hold { since, base, .. } => {
+                let steps = ((now - since) / self.cfg.level_every_us.max(1)) as usize;
+                (base + steps).min(JOG_LEVELS - 1)
             }
-            _ => self.cfg.speeds[JOG_LEVELS - 1],
+            _ => JOG_LEVELS - 1,
         }
+    }
+
+    fn cap_now(&self, now: u64) -> u32 {
+        self.cfg.speeds[self.level_now(now)]
     }
 }
 
@@ -149,7 +180,7 @@ mod tests {
     #[test]
     fn tap_moves_exact_distance() {
         let mut j = Jog::new(CFG);
-        j.press(1, 20, 100, 0, 0);
+        j.press(1, 20, 3, 100, 0, 0);
         j.release(100, 0, 50_000);
         assert_eq!(j.update(100, FREE, 60_000), (Target::whole(120, true), Some(5000)));
         // Still held long after the move is done: no hold because it was released.
@@ -160,9 +191,9 @@ mod tests {
     #[test]
     fn repeated_taps_accumulate() {
         let mut j = Jog::new(CFG);
-        j.press(-1, 20, 0, 0, 0);
+        j.press(-1, 20, 3, 0, 0, 0);
         j.release(0, 0, 10);
-        j.press(-1, 20, -5, 0, 20);
+        j.press(-1, 20, 3, -5, 0, 20);
         j.release(-5, 0, 30);
         assert_eq!(j.update(-5, FREE, 40).0.pos, -40);
     }
@@ -170,8 +201,8 @@ mod tests {
     #[test]
     fn hold_ramps_speed_then_brakes_on_release() {
         let mut j = Jog::new(CFG);
-        j.press(1, 20, 0, 0, 0);
-        assert_eq!(j.update(0, FREE, 399_999).1, Some(5000)); // still a tap
+        j.press(1, 20, 0, 0, 0, 0);
+        assert_eq!(j.update(0, FREE, 399_999).1, Some(100)); // still a tap, at level 0
         let (t, cap) = j.update(10, FREE, 400_000);
         assert!(t.pos > 1_000_000);
         assert_eq!(cap, Some(100));
@@ -185,10 +216,37 @@ mod tests {
     }
 
     #[test]
+    fn view_follows_state() {
+        let mut j = Jog::new(CFG);
+        let b = Bounds::new(None, Some(15));
+        assert_eq!(j.view(0, b, 0), JogView::Idle);
+        j.press(1, 20, 0, 0, 0, 0);
+        assert_eq!(j.view(5, b, 1), JogView::Tap { remaining: 10 }); // clamped by the stop at 15
+        j.update(5, FREE, 400_000);
+        assert_eq!(j.view(10, FREE, 400_000), JogView::Hold { level: 1 });
+        assert_eq!(j.view(10, FREE, 2_500_000), JogView::Hold { level: 3 });
+        assert_eq!(j.view(10, FREE, 99_000_000), JogView::Hold { level: 4 });
+        j.release(10, 30, 99_000_001);
+        assert_eq!(j.view(12, FREE, 99_000_002), JogView::Braking);
+    }
+
+    #[test]
+    fn hold_starts_at_selected_level_and_caps_at_fastest() {
+        let mut j = Jog::new(CFG);
+        j.press(1, 20, 2, 0, 0, 0);
+        assert_eq!(j.update(0, FREE, 1).1, Some(1600)); // tap at level 2
+        assert_eq!(j.update(0, FREE, 400_000).1, Some(1600)); // hold starts there
+        assert_eq!(j.update(0, FREE, 1_399_999).1, Some(1600));
+        assert_eq!(j.update(0, FREE, 1_400_000).1, Some(5000)); // next level after 1 s
+        assert_eq!(j.update(0, FREE, 60_000_000).1, Some(5000)); // and no further
+        assert_eq!(j.view(0, FREE, 60_000_000), JogView::Hold { level: 4 });
+    }
+
+    #[test]
     fn stops_limit_jog() {
         let mut j = Jog::new(CFG);
         let b = Bounds::new(Some(-10), Some(50));
-        j.press(1, 100, 0, 0, 0);
+        j.press(1, 100, 3, 0, 0, 0);
         assert_eq!(j.update(0, b, 1).0.pos, 50);
         j.update(0, b, 500_000);
         assert_eq!(j.update(20, b, 500_001).0.pos, 50);
@@ -197,9 +255,9 @@ mod tests {
     #[test]
     fn opposite_press_brakes() {
         let mut j = Jog::new(CFG);
-        j.press(1, 20, 0, 0, 0);
+        j.press(1, 20, 3, 0, 0, 0);
         j.update(0, FREE, 500_000); // now holding
-        j.press(-1, 20, 300, 12, 600_000);
+        j.press(-1, 20, 3, 300, 12, 600_000);
         assert_eq!(j.update(300, FREE, 600_001).0.pos, 312);
     }
 }

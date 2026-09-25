@@ -28,6 +28,14 @@ impl Unit {
             Unit::Inch => "IN",
         }
     }
+
+    /// Lower-case unit appended to values, e.g. `1.250mm`.
+    pub const fn suffix(self) -> &'static str {
+        match self {
+            Unit::Mm => "mm",
+            Unit::Inch => "in",
+        }
+    }
 }
 
 /// Pitch increments selectable with the step buttons, in thousandths of the

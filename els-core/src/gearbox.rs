@@ -108,6 +108,13 @@ impl Gearbox {
         self.target = pos;
     }
 
+    /// Remove both stops. Only for when disengaged: unlike [`Self::toggle_stop`]
+    /// it doesn't resynchronise a parked thread.
+    pub fn clear_stops(&mut self) {
+        self.left = None;
+        self.right = None;
+    }
+
     /// Set a stop at `pos` if none is set, otherwise remove it.
     pub fn toggle_stop(&mut self, side: Side, spindle: i64, pos: i64) {
         let slot = match side {

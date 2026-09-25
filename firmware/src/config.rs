@@ -82,7 +82,9 @@ pub const DEFAULTS: Settings = Settings {
     step_active_low: true,
     step_pulse_ns: 2_500,
     dir_setup_ns: 10_000,
-    // Jog hold speeds in du/s (0.5, 2, 8, 25 mm/s); taps use the last one.
+    // Jog speeds in du/s (0.5, 2, 8, 25 mm/s), one per jog distance (.01 / .1 /
+    // 1 / 10). Taps use the selected distance's speed; holds start there and
+    // step up to the fastest.
     jog_speeds_du_per_s: [5_000, 20_000, 80_000, 250_000],
     jog_hold_after_ms: 400,
     jog_level_every_ms: 1_000,
