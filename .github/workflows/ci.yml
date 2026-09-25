@@ -69,15 +69,26 @@ jobs:
           targets: riscv32imac-unknown-none-elf
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+        id: cache
         with:
           workspaces: firmware
       - run: cargo fmt --check
       - run: cargo clippy --release -- -D warnings
-      - run: cargo build --release
+      - run: cargo build --release --timings
+      - name: Build report
+        run: >-
+          python3 ../.github/scripts/build_summary.py "Firmware ESP32-C6"
+          target/riscv32imac-unknown-none-elf/release/els
+          target/cargo-timings/cargo-timing.html
+          "${{ steps.cache.outputs.cache-hit }}"
       - uses: actions/upload-artifact@v7
         with:
           name: els-esp32c6
           path: firmware/target/riscv32imac-unknown-none-elf/release/els
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-esp32c6
+          path: firmware/target/cargo-timings/cargo-timing.html
 
   firmware-esp32s3:
     name: Firmware ESP32-S3
@@ -96,10 +107,21 @@ jobs:
           buildtargets: esp32s3
           ldproxy: false
       - uses: Swatinem/rust-cache@v2
+        id: cache
         with:
           workspaces: firmware
-      - run: cargo +esp build-s3
+      - run: cargo +esp build-s3 --timings
+      - name: Build report
+        run: >-
+          python3 ../.github/scripts/build_summary.py "Firmware ESP32-S3"
+          target/xtensa-esp32s3-none-elf/release/els
+          target/cargo-timings/cargo-timing.html
+          "${{ steps.cache.outputs.cache-hit }}"
       - uses: actions/upload-artifact@v7
         with:
           name: els-esp32s3
           path: firmware/target/xtensa-esp32s3-none-elf/release/els
+      - uses: actions/upload-artifact@v7
+        with:
+          name: build-timings-esp32s3
+          path: firmware/target/cargo-timings/cargo-timing.html
