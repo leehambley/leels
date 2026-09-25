@@ -33,7 +33,13 @@ ids, and add the new buttons. The mapping lives in
 | 40 | bStopL | Set / clear Z left stop at current position |
 | 41 | bStopR | Set / clear Z right stop at current position |
 | 21 | bZ0 | Zero the Z position readout |
+| 48 | bLeft | **Jog left**, needs press *and* release events (see below) |
+| 49 | bRight | **Jog right**, needs press *and* release events |
+| 58 | bJogDist | Cycle jog distance .01 / .1 / 1 / 10 (new) |
 | 9, 10 | tTurns, tAngle | Zero turns and angle readouts |
+
+For the two jog buttons, tick *Send Component ID* on **both** Touch Press and
+Touch Release events. Every other button only needs the press event.
 
 ## Text fields written by the firmware
 
@@ -48,6 +54,7 @@ ids, and add the new buttons. The mapping lives in
 | tAngleVal | spindle angle since engage, degree sign sent as byte 0xDF |
 | tZ | Z position (mm 3 dp / inch 4 dp) |
 | tZLeft / tZRight | distance to left / right stop, blank when unset |
+| tJogVal | jog distance: `0.01` … `10` (new) |
 | t3 | typed number (`Pitch 1.25`), warnings, `Set pitch` |
 
 Fields are only resent when their text changes, plus a full refresh every 5 s.

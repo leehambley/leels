@@ -13,6 +13,7 @@
 
 pub mod display;
 pub mod gearbox;
+pub mod jog;
 pub mod nextion;
 pub mod pitch;
 pub mod spindle;
@@ -34,6 +35,10 @@ pub struct Machine {
 impl Machine {
     pub fn steps_to_du(&self, steps: i64) -> i64 {
         mul_div_round(steps, self.screw_du, self.motor_steps)
+    }
+
+    pub fn du_to_steps(&self, du: i64) -> i64 {
+        mul_div_round(du, self.motor_steps, self.screw_du)
     }
 }
 

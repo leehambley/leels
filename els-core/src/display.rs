@@ -11,6 +11,8 @@ use crate::{mul_div_round, Machine};
 pub struct Status {
     pub engaged: bool,
     pub syncing: bool,
+    /// A jog move is in progress.
+    pub jogging: bool,
     /// Motor position in steps.
     pub pos: i64,
     /// Motor position shown as Z = 0.
@@ -25,8 +27,9 @@ pub struct Status {
 pub type Text = heapless::String<24>;
 
 /// Nextion object names, in the order `render` returns their text.
-pub const FIELDS: [&str; 11] = [
+pub const FIELDS: [&str; 12] = [
     "bStatus", "tPitch", "bMeasure", "tStepVal", "tRPMVal", "tTurnsVal", "tAngleVal", "tZ", "tZLeft", "tZRight", "t3",
+    "tJogVal",
 ];
 
 pub fn render(ui: &Ui, st: &Status, m: &Machine, now_ms: u64) -> [Text; FIELDS.len()] {
@@ -73,6 +76,7 @@ pub fn render(ui: &Ui, st: &Status, m: &Machine, now_ms: u64) -> [Text; FIELDS.l
         st.left_stop.map_or_else(Text::new, |l| distance(m, unit, l - st.pos)),
         st.right_stop.map_or_else(Text::new, |r| distance(m, unit, st.pos - r)),
         message,
+        trim_zeros(fixed(ui.jog_milli() as i64, 3)),
     ]
 }
 
@@ -127,6 +131,18 @@ mod tests {
     use super::*;
     use crate::ui::Key;
 
+    const IDLE: Status = Status {
+        engaged: false,
+        syncing: false,
+        jogging: false,
+        pos: 0,
+        z_zero: 0,
+        left_stop: None,
+        right_stop: None,
+        rpm: 0,
+        turn_counts: 0,
+    };
+
     const M: Machine = Machine { counts_per_rev: 2400, motor_steps: 800, screw_du: 40_000 };
 
     #[test]
@@ -142,9 +158,9 @@ mod tests {
     #[test]
     fn renders_all_fields() {
         let mut ui = Ui::new(254_000);
-        ui.handle(Key::StepSize(3), 0);
-        ui.handle(Key::Plus, 0);
-        ui.handle(Key::Reverse, 0);
+        ui.handle(Key::StepSize(3), 0, &IDLE);
+        ui.handle(Key::Plus, 0, &IDLE);
+        ui.handle(Key::Reverse, 0, &IDLE);
         let st = Status {
             engaged: true,
             pos: 250,
@@ -153,22 +169,22 @@ mod tests {
             right_stop: None,
             rpm: 300,
             turn_counts: 3600,
-            ..Default::default()
+            ..IDLE
         };
         let f = render(&ui, &st, &M, 0);
         let f: Vec<&str> = f.iter().map(|t| t.as_str()).collect();
         assert_eq!(
             f,
-            ["ON", "-1.000", "MM", "1", "300", "1.50", "180.00°", "1.000", "1.000", "", ""]
+            ["ON", "-1.000", "MM", "1", "300", "1.50", "180.00°", "1.000", "1.000", "", "", "0.1"]
         );
     }
 
     #[test]
     fn renders_inch_and_entry() {
         let mut ui = Ui::new(254_000);
-        ui.handle(Key::ToggleUnit, 0);
-        ui.handle(Key::Digit(4), 0);
-        let st = Status { pos: 254, ..Default::default() }; // 254 steps = 1.27mm = 0.05"
+        ui.handle(Key::ToggleUnit, 0, &IDLE);
+        ui.handle(Key::Digit(4), 0, &IDLE);
+        let st = Status { pos: 254, ..IDLE }; // 254 steps = 1.27mm = 0.05"
         let f = render(&ui, &st, &M, 0);
         assert_eq!(f[2], "IN");
         assert_eq!(f[7], "0.0500");

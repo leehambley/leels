@@ -14,7 +14,8 @@ mod config;
 use core::cell::Cell;
 
 use els_core::display::{self, Status, Text, FIELDS};
-use els_core::gearbox::Gearbox;
+use els_core::gearbox::{Gearbox, Side};
+use els_core::jog::{Bounds, Jog};
 use els_core::nextion::{self, Parser};
 use els_core::spindle::Spindle;
 use els_core::stepper::{Action, Stepper};
@@ -45,6 +46,7 @@ static KEYS: Channel<CriticalSectionRawMutex, Key, 16> = Channel::new();
 static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::new(Status {
     engaged: false,
     syncing: false,
+    jogging: false,
     pos: 0,
     z_zero: 0,
     left_stop: None,
@@ -84,6 +86,7 @@ async fn main(spawner: Spawner) {
         (p.GPIO2, p.GPIO3, p.GPIO4, p.GPIO5, p.GPIO6, p.GPIO22, p.GPIO23);
 
     // Spindle encoder: count both edges of A, direction from B (2 counts per line).
+    // Open-drain encoder: the internal pull-ups supply the high level.
     let pull_up = InputConfig::default().with_pull(Pull::Up);
     let enc_a = Input::new(enc_a, pull_up);
     let enc_b = Input::new(enc_b, pull_up);
@@ -134,6 +137,7 @@ async fn motion_task(mut hw: MotionHw) {
     let mut spindle = Spindle::new(config::ENCODER_BACKLASH);
     let mut gearbox = Gearbox::new(machine);
     let mut stepper = Stepper::new(config::stepper());
+    let mut jog = Jog::new(config::jog());
     let mut z_zero = 0i64;
     let mut turn_zero = 0i64;
     let mut pulse_active = false;
@@ -155,17 +159,35 @@ async fn motion_task(mut hw: MotionHw) {
             match cmd {
                 Command::SetPitchDu(du) => gearbox.set_pitch_du(du, spindle.avg),
                 Command::Engage => {
+                    jog.cancel();
                     gearbox.engage(spindle.avg, stepper.pos);
                     turn_zero = spindle.pos;
                 }
-                Command::Disengage => gearbox.disengage(stepper.pos),
+                Command::Disengage => {
+                    jog.cancel();
+                    gearbox.disengage(stepper.pos);
+                }
+                Command::Jog { left, distance_du } if !gearbox.engaged() => {
+                    let dir = if left { 1 } else { -1 };
+                    jog.press(dir, machine.du_to_steps(distance_du), stepper.pos, stepper.braking_steps(), now);
+                }
+                Command::Jog { .. } => {}
+                Command::JogRelease => jog.release(stepper.pos, stepper.braking_steps(), now),
                 Command::ToggleStop(side) => gearbox.toggle_stop(side, spindle.avg, stepper.pos),
                 Command::ZeroZ => z_zero = stepper.pos,
                 Command::ZeroTurns => turn_zero = spindle.pos,
             }
         }
 
-        let target = gearbox.update(spindle.avg);
+        let target = if gearbox.engaged() {
+            stepper.set_speed_cap(None);
+            gearbox.update(spindle.avg)
+        } else {
+            let bounds = Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left));
+            let (target, cap) = jog.update(stepper.pos, bounds, now);
+            stepper.set_speed_cap(cap);
+            target
+        };
         if pulse_active {
             // End the pulse started last tick; no new edge this tick.
             hw.step.set_level(step_off);
@@ -195,10 +217,11 @@ async fn motion_task(mut hw: MotionHw) {
             let status = Status {
                 engaged: gearbox.engaged(),
                 syncing: gearbox.syncing(),
+                jogging: jog.active(),
                 pos: stepper.pos,
                 z_zero,
-                left_stop: gearbox.stop(els_core::gearbox::Side::Left),
-                right_stop: gearbox.stop(els_core::gearbox::Side::Right),
+                left_stop: gearbox.stop(Side::Left),
+                right_stop: gearbox.stop(Side::Right),
                 rpm,
                 turn_counts: spindle.pos - turn_zero,
             };
@@ -240,7 +263,7 @@ async fn ui_task(mut tx: UartTx<'static, Async>) {
     loop {
         let now_ms = Instant::now().as_millis();
         if let Either::First(key) = select(KEYS.receive(), Timer::after_millis(config::DISPLAY_REFRESH_MS)).await {
-            let out = ui.handle(key, now_ms);
+            let out = ui.handle(key, now_ms, &STATUS.lock(|s| s.get()));
             if let Some(cmd) = out.command {
                 COMMANDS.send(cmd).await;
                 // Let the motion task apply it before we render its status.

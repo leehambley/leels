@@ -1,5 +1,6 @@
 //! Machine configuration. Edit to suit your hardware.
 
+use els_core::jog::{JogConfig, JOG_LEVELS};
 use els_core::stepper::StepperConfig;
 use els_core::Machine;
 
@@ -28,6 +29,13 @@ pub const INVERT_ENABLE: bool = false;
 /// STEP idles high and pulses low, as on the NanoEls H5.
 pub const STEP_ACTIVE_LOW: bool = true;
 
+/// Hold a jog button this long to switch from a single step to continuous motion.
+pub const JOG_HOLD_AFTER_MS: u64 = 400;
+/// While holding, step up to the next speed this often.
+pub const JOG_LEVEL_EVERY_MS: u64 = 1_000;
+/// Jog speed levels in mm/s * 10000 (du/s), slowest first. Taps use the last.
+pub const JOG_SPEEDS_DU_PER_S: [i64; JOG_LEVELS] = [5_000, 20_000, 80_000, 250_000]; // 0.5, 2, 8, 25 mm/s
+
 /// Largest pitch accepted, in deci-microns (254000 = 1").
 pub const MAX_PITCH_DU: i64 = 254_000;
 
@@ -49,6 +57,15 @@ const _: () = assert!(SPEED_MAX as u64 <= 1_000_000 / (2 * MOTION_TICK_US));
 
 pub const fn machine() -> Machine {
     Machine { counts_per_rev: ENCODER_PPR * 2, motor_steps: MOTOR_STEPS, screw_du: SCREW_DU }
+}
+
+pub fn jog() -> JogConfig {
+    let m = machine();
+    JogConfig {
+        hold_after_us: JOG_HOLD_AFTER_MS * 1_000,
+        level_every_us: JOG_LEVEL_EVERY_MS * 1_000,
+        speeds: JOG_SPEEDS_DU_PER_S.map(|du| m.du_to_steps(du).clamp(1, SPEED_MAX as i64) as u32),
+    }
 }
 
 pub const fn stepper() -> StepperConfig {

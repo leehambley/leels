@@ -34,6 +34,9 @@ impl Unit {
 /// current unit: .001, .01, .1, 1, 10.
 pub const STEP_SIZES_MILLI: [u32; 5] = [1, 10, 100, 1_000, 10_000];
 
+/// Jog distances, cycled with the jog-distance button: .01, .1, 1, 10.
+pub const JOG_SIZES_MILLI: [u32; 4] = [10, 100, 1_000, 10_000];
+
 /// Signed pitch expressed as a magnitude in thousandths of `unit` plus a
 /// direction. Toggling the unit keeps the number and changes its meaning
 /// (0.100mm becomes 0.100").

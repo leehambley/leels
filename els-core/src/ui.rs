@@ -1,8 +1,9 @@
 //! Operator interface logic: turns key presses into pitch state and commands
 //! for the motion task. Knows nothing about the display hardware.
 
+use crate::display::Status;
 use crate::gearbox::Side;
-use crate::pitch::{parse_entry_milli, Pitch, Unit, STEP_SIZES_MILLI};
+use crate::pitch::{parse_entry_milli, Pitch, Unit, JOG_SIZES_MILLI, STEP_SIZES_MILLI};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -23,6 +24,10 @@ pub enum Key {
     StopRight,
     ZeroZ,
     ZeroTurns,
+    /// Jog button pressed or released (`left` = towards the left stop).
+    Jog { left: bool, pressed: bool },
+    /// Cycle jog distance through [`JOG_SIZES_MILLI`].
+    JogCycle,
 }
 
 /// Commands for the motion task.
@@ -34,6 +39,8 @@ pub enum Command {
     ToggleStop(Side),
     ZeroZ,
     ZeroTurns,
+    Jog { left: bool, distance_du: i64 },
+    JogRelease,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -54,6 +61,7 @@ const ENTRY_MAX_LEN: usize = 8;
 pub struct Ui {
     pub pitch: Pitch,
     step_idx: usize,
+    jog_idx: usize,
     entry: Option<heapless::String<ENTRY_MAX_LEN>>,
     message: Option<(&'static str, u64)>,
     max_pitch_du: i64,
@@ -64,6 +72,7 @@ impl Ui {
         Self {
             pitch: Pitch { magnitude_milli: 0, reversed: false, unit: Unit::Mm },
             step_idx: 2,
+            jog_idx: 1,
             entry: None,
             message: None,
             max_pitch_du,
@@ -72,6 +81,10 @@ impl Ui {
 
     pub fn step_milli(&self) -> u32 {
         STEP_SIZES_MILLI[self.step_idx]
+    }
+
+    pub fn jog_milli(&self) -> u32 {
+        JOG_SIZES_MILLI[self.jog_idx]
     }
 
     /// Number being typed on the keypad, if any.
@@ -84,7 +97,9 @@ impl Ui {
         self.message.filter(|&(_, until)| now_ms < until).map(|(m, _)| m)
     }
 
-    pub fn handle(&mut self, key: Key, now_ms: u64) -> Outcome {
+    /// `status` is the latest motion snapshot, used to refuse keys that
+    /// don't make sense right now.
+    pub fn handle(&mut self, key: Key, now_ms: u64, status: &Status) -> Outcome {
         match key {
             Key::Digit(d) => self.edit(now_ms, |e| {
                 let frac = e.split_once('.').map_or(0, |(_, f)| f.len());
@@ -112,7 +127,10 @@ impl Ui {
             },
             // Don't engage with a half-typed pitch on screen.
             Key::Engage if self.entry.is_some() => self.reject("Press Enter first", now_ms),
+            Key::Engage if status.jogging => self.reject("Wait for jog to stop", now_ms),
             Key::Engage => Outcome::cmd(Command::Engage),
+            // Always forward releases so a jog can never be left running.
+            Key::Jog { pressed: false, .. } => Outcome::cmd(Command::JogRelease),
             Key::Disengage => {
                 self.entry = None;
                 Outcome::cmd(Command::Disengage)
@@ -120,12 +138,12 @@ impl Ui {
             other => {
                 // Any other key abandons a pending entry.
                 self.entry = None;
-                self.handle_other(other, now_ms)
+                self.handle_other(other, now_ms, status)
             }
         }
     }
 
-    fn handle_other(&mut self, key: Key, now_ms: u64) -> Outcome {
+    fn handle_other(&mut self, key: Key, now_ms: u64, status: &Status) -> Outcome {
         let p = self.pitch;
         match key {
             Key::Plus => {
@@ -150,6 +168,15 @@ impl Ui {
             Key::StopRight => Outcome::cmd(Command::ToggleStop(Side::Right)),
             Key::ZeroZ => Outcome::cmd(Command::ZeroZ),
             Key::ZeroTurns => Outcome::cmd(Command::ZeroTurns),
+            Key::JogCycle => {
+                self.jog_idx = (self.jog_idx + 1) % JOG_SIZES_MILLI.len();
+                Outcome::default()
+            }
+            Key::Jog { .. } if status.engaged => self.reject("Disengage to jog", now_ms),
+            Key::Jog { left, .. } => {
+                let distance_du = self.jog_milli() as i64 * p.unit.du_per_milli();
+                Outcome::cmd(Command::Jog { left, distance_du })
+            }
             Key::Digit(_) | Key::Point | Key::Backspace | Key::Enter | Key::Engage | Key::Disengage => {
                 unreachable!("handled in Ui::handle")
             }
@@ -191,8 +218,20 @@ mod tests {
 
     const MAX: i64 = 254_000;
 
+    const IDLE: Status = Status {
+        engaged: false,
+        syncing: false,
+        jogging: false,
+        pos: 0,
+        z_zero: 0,
+        left_stop: None,
+        right_stop: None,
+        rpm: 0,
+        turn_counts: 0,
+    };
+
     fn press(ui: &mut Ui, keys: &[Key]) -> Vec<Outcome> {
-        keys.iter().map(|&k| ui.handle(k, 0)).collect()
+        keys.iter().map(|&k| ui.handle(k, 0, &IDLE)).collect()
     }
 
     #[test]
@@ -209,17 +248,17 @@ mod tests {
     fn reverse_flips_sign() {
         let mut ui = Ui::new(MAX);
         press(&mut ui, &[Key::StepSize(3), Key::Plus]);
-        let out = ui.handle(Key::Reverse, 0);
+        let out = ui.handle(Key::Reverse, 0, &IDLE);
         assert_eq!(out.command, Some(Command::SetPitchDu(-10_000)));
         // +/- change the magnitude and keep the direction.
-        assert_eq!(ui.handle(Key::Plus, 0).command, Some(Command::SetPitchDu(-20_000)));
+        assert_eq!(ui.handle(Key::Plus, 0, &IDLE).command, Some(Command::SetPitchDu(-20_000)));
     }
 
     #[test]
     fn unit_toggle_keeps_number() {
         let mut ui = Ui::new(MAX);
         press(&mut ui, &[Key::StepSize(2), Key::Plus]);
-        assert_eq!(ui.handle(Key::ToggleUnit, 0).command, Some(Command::SetPitchDu(25_400)));
+        assert_eq!(ui.handle(Key::ToggleUnit, 0, &IDLE).command, Some(Command::SetPitchDu(25_400)));
         assert_eq!(ui.pitch.magnitude_milli, 100);
         assert_eq!(ui.pitch.unit, Unit::Inch);
     }
@@ -228,7 +267,7 @@ mod tests {
     fn unit_toggle_refused_when_too_large() {
         let mut ui = Ui::new(MAX);
         press(&mut ui, &[Key::StepSize(4), Key::Plus]); // 10mm
-        let out = ui.handle(Key::ToggleUnit, 0);
+        let out = ui.handle(Key::ToggleUnit, 0, &IDLE);
         assert!(out.beep);
         assert_eq!(ui.pitch.unit, Unit::Mm);
         assert_eq!(ui.message(0), Some("Pitch too large"));
@@ -241,7 +280,7 @@ mod tests {
         let out = press(&mut ui, &[Key::Digit(1), Key::Point, Key::Digit(2), Key::Digit(5)]);
         assert!(out.iter().all(|o| o.command.is_none()));
         assert_eq!(ui.entry(), Some("1.25"));
-        assert_eq!(ui.handle(Key::Enter, 0).command, Some(Command::SetPitchDu(12_500)));
+        assert_eq!(ui.handle(Key::Enter, 0, &IDLE).command, Some(Command::SetPitchDu(12_500)));
         assert_eq!(ui.entry(), None);
     }
 
@@ -253,18 +292,34 @@ mod tests {
         assert_eq!(ui.entry(), Some(".123"));
         press(&mut ui, &[Key::Backspace, Key::Backspace, Key::Backspace, Key::Backspace]);
         assert_eq!(ui.entry(), None);
-        assert!(ui.handle(Key::Point, 0) == Outcome::default());
-        assert!(ui.handle(Key::Point, 0).beep);
+        assert!(ui.handle(Key::Point, 0, &IDLE) == Outcome::default());
+        assert!(ui.handle(Key::Point, 0, &IDLE).beep);
     }
 
     #[test]
     fn engage_blocked_during_entry_and_other_keys_cancel_it() {
         let mut ui = Ui::new(MAX);
-        ui.handle(Key::Digit(2), 0);
-        assert!(ui.handle(Key::Engage, 0).beep);
-        assert_eq!(ui.handle(Key::StopLeft, 0).command, Some(Command::ToggleStop(Side::Left)));
+        ui.handle(Key::Digit(2), 0, &IDLE);
+        assert!(ui.handle(Key::Engage, 0, &IDLE).beep);
+        assert_eq!(ui.handle(Key::StopLeft, 0, &IDLE).command, Some(Command::ToggleStop(Side::Left)));
         assert_eq!(ui.entry(), None);
-        assert_eq!(ui.handle(Key::Engage, 0).command, Some(Command::Engage));
+        assert_eq!(ui.handle(Key::Engage, 0, &IDLE).command, Some(Command::Engage));
+    }
+
+    #[test]
+    fn jog_press_release_and_cycle() {
+        let mut ui = Ui::new(MAX);
+        let left = |pressed| Key::Jog { left: true, pressed };
+        assert_eq!(ui.handle(left(true), 0, &IDLE).command, Some(Command::Jog { left: true, distance_du: 1_000 }));
+        assert_eq!(ui.handle(left(false), 0, &IDLE).command, Some(Command::JogRelease));
+        press(&mut ui, &[Key::JogCycle, Key::ToggleUnit]);
+        assert_eq!(ui.jog_milli(), 1_000);
+        assert_eq!(ui.handle(left(true), 0, &IDLE).command, Some(Command::Jog { left: true, distance_du: 254_000 }));
+        let engaged = Status { engaged: true, ..IDLE };
+        assert!(ui.handle(left(true), 0, &engaged).beep);
+        assert_eq!(ui.handle(left(false), 0, &engaged).command, Some(Command::JogRelease));
+        let jogging = Status { jogging: true, ..IDLE };
+        assert!(ui.handle(Key::Engage, 0, &jogging).beep);
     }
 
     #[test]
@@ -272,9 +327,9 @@ mod tests {
         let mut ui = Ui::new(MAX);
         press(&mut ui, &[Key::Plus, Key::Reverse]);
         press(&mut ui, &[Key::Digit(2)]);
-        assert_eq!(ui.handle(Key::Enter, 0).command, Some(Command::SetPitchDu(-20_000)));
+        assert_eq!(ui.handle(Key::Enter, 0, &IDLE).command, Some(Command::SetPitchDu(-20_000)));
         press(&mut ui, &[Key::Digit(3), Key::Digit(0)]);
-        assert!(ui.handle(Key::Enter, 0).beep);
+        assert!(ui.handle(Key::Enter, 0, &IDLE).beep);
         assert_eq!(ui.pitch.magnitude_milli, 2_000);
     }
 }

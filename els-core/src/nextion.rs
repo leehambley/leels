@@ -42,8 +42,15 @@ impl Parser {
 /// Component ids on page 0 of the HMI. Existing NanoEls H5 ids are kept where
 /// the function is unchanged; 51+ are new buttons. See docs/nextion.md.
 pub fn key_for(touch: Touch) -> Option<Key> {
-    if touch.page != 0 || !touch.pressed {
+    if touch.page != 0 {
         return None;
+    }
+    // Jog buttons need both press and release events.
+    match touch.component {
+        48 => return Some(Key::Jog { left: true, pressed: touch.pressed }),
+        49 => return Some(Key::Jog { left: false, pressed: touch.pressed }),
+        _ if !touch.pressed => return None,
+        _ => {}
     }
     Some(match touch.component {
         3 | 23 => Key::Disengage, // bStatus, bOff
@@ -62,6 +69,7 @@ pub fn key_for(touch: Touch) -> Option<Key> {
         51 => Key::Enter,
         52 => Key::Point,
         c @ 53..=57 => Key::StepSize(c - 53),
+        58 => Key::JogCycle,
         _ => return None,
     })
 }
@@ -111,6 +119,8 @@ mod tests {
         assert_eq!(key_for(t(35)), Some(Key::Digit(9)));
         assert_eq!(key_for(t(57)), Some(Key::StepSize(4)));
         assert_eq!(key_for(Touch { pressed: false, ..t(26) }), None);
+        assert_eq!(key_for(Touch { pressed: false, ..t(49) }), Some(Key::Jog { left: false, pressed: false }));
+        assert_eq!(key_for(t(58)), Some(Key::JogCycle));
     }
 
     #[test]
