@@ -62,6 +62,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: esp-rs/xtensa-toolchain@v1.7.0
+        env:
+          # espup queries the GitHub API; anonymous requests get rate-limited.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           buildtargets: esp32s3
           ldproxy: false
