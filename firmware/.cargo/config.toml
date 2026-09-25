@@ -7,8 +7,8 @@
 target = "riscv32imac-unknown-none-elf"
 
 [alias]
-s3 = "run --release --no-default-features --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core"
-build-s3 = "build --release --no-default-features --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core"
+s3 = "run --release --no-default-features --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
+build-s3 = "build --release --no-default-features --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
 
 [target.riscv32imac-unknown-none-elf]
 runner = "espflash flash --monitor --chip esp32c6"

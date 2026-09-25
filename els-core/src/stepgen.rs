@@ -164,10 +164,11 @@ impl StepGen {
         // Relative to a moving target only acceleration counts; a final
         // target can additionally be stopped at from start speed.
         let e = tgt - (self.p + v_ff * t);
-        let v0 = if target.is_final { self.cfg.start_speed as u128 } else { 0 };
-        let two_a_d = 2 * self.cfg.acceleration as u128 * e.unsigned_abs() as u128; // (steps/s)² · 2^32
-        let brake_sps = isqrt(((v0 * v0) << 32) + two_a_d) >> 16; // steps/s · 2^16 → steps/s
-        let brake = self.to_v(brake_sps.min(u32::MAX as u128) as u32);
+        // In (steps/s)² · 2^16, saturating: a huge error just means no braking limit.
+        let v0 = if target.is_final { self.cfg.start_speed as u64 } else { 0 };
+        let two_a_d = (2 * self.cfg.acceleration as u64).saturating_mul(e.unsigned_abs() >> 16);
+        let brake_sps = isqrt((v0 * v0).saturating_mul(1 << 16).saturating_add(two_a_d)) >> 8;
+        let brake = self.to_v(brake_sps.min(u32::MAX as u64) as u32);
         let correction = (e / t).clamp(-brake, brake);
         let desired = (v_ff + correction).clamp(-v_max, v_max);
 
@@ -225,7 +226,9 @@ impl StepGen {
     }
 
     fn to_v(&self, steps_per_s: u32) -> i64 {
-        (steps_per_s as i128 * ONE as i128 / self.cfg.tick_hz as i128) as i64
+        // steps/s < 2^32 and ONE = 2^32, so the product fits in u64 as long as
+        // the result (steps per tick, fixed point) does.
+        ((steps_per_s as u64) << 32).checked_div(self.cfg.tick_hz as u64).unwrap_or(0) as i64
     }
 }
 
@@ -233,18 +236,20 @@ fn round(p: i64) -> i64 {
     (p + HALF) >> 32
 }
 
-fn isqrt(n: u128) -> u128 {
+fn isqrt(n: u64) -> u64 {
     if n < 2 {
         return n;
     }
-    // Newton's method; no floating point on the C6.
-    let mut x = n;
-    let mut y = x.div_ceil(2);
-    while y < x {
+    // Newton's method from a power of two at or above the root: converges in a
+    // handful of 64-bit divisions (no hardware divider for u128 on the C6).
+    let mut x = 1u64 << (64 - n.leading_zeros()).div_ceil(2);
+    loop {
+        let y = (x + n / x) / 2;
+        if y >= x {
+            return x;
+        }
         x = y;
-        y = (x + n / x) / 2;
     }
-    x
 }
 
 #[cfg(test)]
@@ -374,6 +379,14 @@ mod tests {
             // dv per segment = 50000 * 250e-6 = 12.5 steps/s, plus start jump.
             assert!(s <= last.max(CFG.start_speed) + 13, "{last} -> {s}");
             last = s;
+        }
+    }
+
+    #[test]
+    fn isqrt_is_exact() {
+        for n in [0u64, 1, 2, 3, 4, 15, 16, 17, 99, 100, 1 << 40, u64::MAX] {
+            let r = isqrt(n);
+            assert!(r as u128 * r as u128 <= n as u128 && (r as u128 + 1) * (r as u128 + 1) > n as u128, "{n}");
         }
     }
 

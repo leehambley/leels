@@ -21,8 +21,12 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
 #[macro_use]
 mod config;
+mod setup;
+mod storage;
 
 use core::cell::Cell;
 
@@ -30,11 +34,12 @@ use els_core::display::{self, Status, Text, FIELDS};
 use els_core::gearbox::{Gearbox, Side};
 use els_core::jog::{Bounds, Jog};
 use els_core::nextion::{self, Parser};
+use els_core::settings::{Origin, Settings};
 use els_core::spindle::Spindle;
-use els_core::stepgen::{Segment, StepGen, MAX_STEPS_PER_SEGMENT};
-use els_core::ui::{Command, Key, Ui};
+use els_core::stepgen::{Segment, StepGen, StepGenConfig, MAX_STEPS_PER_SEGMENT};
+use els_core::ui::{Action, Command, Key, Ui};
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{select3, Either3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::channel::Channel;
@@ -70,8 +75,14 @@ static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::n
     turn_counts: 0,
 }));
 
-const STEP_ON: Level = if config::STEP_ACTIVE_LOW { Level::Low } else { Level::High };
-const STEP_OFF: Level = if config::STEP_ACTIVE_LOW { Level::High } else { Level::Low };
+/// STEP levels: (active, idle).
+fn step_levels(s: &Settings) -> (Level, Level) {
+    if s.step_active_low {
+        (Level::Low, Level::High)
+    } else {
+        (Level::High, Level::Low)
+    }
+}
 
 /// RMT items for one segment: one per step plus the trailing idle/end item.
 type Codes = heapless::Vec<PulseCode, { MAX_STEPS_PER_SEGMENT + 1 }>;
@@ -99,6 +110,17 @@ async fn main(spawner: Spawner) {
     esp_rtos::start(timg0.timer0);
     println!("ELS gearbox starting");
 
+    // Heap for the WiFi stack (only used in setup mode).
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 64 * 1024);
+    esp_alloc::heap_allocator!(size: 36 * 1024);
+
+    assert_eq!(config::DEFAULTS.validate(config::TIMING), Ok(()), "config::DEFAULTS are invalid");
+    let mut store = storage::Store::new(p.FLASH);
+    let (settings, origin) = store.load_settings(config::DEFAULTS, config::TIMING);
+    let operator_state = store.load_state(settings.max_pitch_du as i64);
+    println!("settings: {:?}", origin);
+    setup::CURRENT.lock(|c| c.set(Some(settings)));
+
     let pins = take_pins!(p);
 
     // Spindle encoder: count both edges of A, direction from B (2 counts per line).
@@ -111,7 +133,7 @@ async fn main(spawner: Spawner) {
     let limit = els_core::spindle::PCNT_LIMIT as i16;
     unit.set_low_limit(Some(-limit)).unwrap();
     unit.set_high_limit(Some(limit)).unwrap();
-    unit.set_filter(Some(config::ENCODER_FILTER_CYCLES)).unwrap();
+    unit.set_filter(Some(settings.encoder_filter_cycles)).unwrap();
     unit.clear();
     let ch = &unit.channel0;
     ch.set_edge_signal(encoder_a.peripheral_input());
@@ -120,7 +142,7 @@ async fn main(spawner: Spawner) {
     ch.set_ctrl_mode(channel::CtrlMode::Reverse, channel::CtrlMode::Keep);
     unit.resume();
 
-    let enabled = if config::INVERT_ENABLE { Level::Low } else { Level::High };
+    let enabled = if settings.invert_enable { Level::Low } else { Level::High };
     let hw = MotionHw {
         spindle: unit,
         rmt: p.RMT,
@@ -134,24 +156,25 @@ async fn main(spawner: Spawner) {
     static MOTION_EXECUTOR: StaticCell<InterruptExecutor<2>> = StaticCell::new();
     let motion_executor = MOTION_EXECUTOR.init(InterruptExecutor::new(sw.software_interrupt2));
     let motion_spawner = motion_executor.start(Priority::Priority3);
-    motion_spawner.spawn(motion_task(hw)).unwrap();
+    motion_spawner.spawn(motion_task(hw, settings)).unwrap();
 
     let uart_config = uart::Config::default().with_baudrate(config::NEXTION_BAUD);
     let (rx, tx) =
         Uart::new(p.UART1, uart_config).unwrap().with_tx(pins.nextion_tx).with_rx(pins.nextion_rx).into_async().split();
     spawner.spawn(touch_task(rx)).unwrap();
-    spawner.spawn(ui_task(tx)).unwrap();
+    spawner.spawn(ui_task(tx, settings, origin, store, operator_state)).unwrap();
+    spawner.spawn(setup::setup_task(spawner, p.WIFI)).unwrap();
 }
 
 /// Convert a planned segment into RMT pulse codes.
-fn encode(segment: &Segment, out: &mut Codes) {
+fn encode(segment: &Segment, cfg: &StepGenConfig, (on, off): (Level, Level), out: &mut Codes) {
     out.clear();
-    for item in segment.items(&config::stepgen()) {
+    for item in segment.items(cfg) {
         let code = if item.pulse == 0 {
             // Zero length marks the end of the transmission.
-            PulseCode::new(STEP_OFF, item.idle, STEP_OFF, 0)
+            PulseCode::new(off, item.idle, off, 0)
         } else {
-            PulseCode::new(STEP_OFF, item.idle, STEP_ON, item.pulse)
+            PulseCode::new(off, item.idle, on, item.pulse)
         };
         let _ = out.push(code);
     }
@@ -177,7 +200,9 @@ impl SpindlePredictor {
 }
 
 #[embassy_executor::task]
-async fn motion_task(mut hw: MotionHw) {
+async fn motion_task(mut hw: MotionHw, settings: Settings) {
+    let levels = step_levels(&settings);
+    let stepgen_cfg = settings.stepgen(config::TIMING);
     // STEP pulses come from RMT channel 0; the pin idles inactive between segments.
     let rmt = Rmt::new(hw.rmt, Rate::from_mhz(config::RMT_SOURCE_MHZ)).unwrap().into_async();
     let mut step: rmt::Channel<'static, Async, rmt::Tx> = rmt
@@ -187,17 +212,17 @@ async fn motion_task(mut hw: MotionHw) {
             TxChannelConfig::default()
                 .with_clk_divider(config::RMT_DIVIDER)
                 .with_idle_output(true)
-                .with_idle_output_level(STEP_OFF),
+                .with_idle_output_level(levels.1),
         )
         .unwrap();
 
-    let machine = config::machine();
+    let machine = settings.machine();
     let segment_us = config::SEGMENT_US as u64;
-    let mut spindle = Spindle::new(config::ENCODER_BACKLASH);
+    let mut spindle = Spindle::new(settings.encoder_backlash as i64);
     let mut predictor = SpindlePredictor { history: [(0, 0); config::SPINDLE_VELOCITY_SEGMENTS], next: 0 };
     let mut gearbox = Gearbox::new(machine);
-    let mut stepgen = StepGen::new(config::stepgen());
-    let mut jog = Jog::new(config::jog());
+    let mut stepgen = StepGen::new(stepgen_cfg);
+    let mut jog = Jog::new(settings.jog());
     let mut z_zero = 0i64;
     let mut turn_zero = 0i64;
 
@@ -209,19 +234,19 @@ async fn motion_task(mut hw: MotionHw) {
     let mut playing = Codes::new();
     let mut planned = Codes::new();
     let mut planned_positive = true;
-    encode(&Segment::default(), &mut planned);
+    encode(&Segment::default(), &stepgen_cfg, levels, &mut planned);
 
     loop {
         core::mem::swap(&mut playing, &mut planned);
         // The previous segment has finished, so DIR can change now; the step
         // generator keeps the first STEP edge after a change DIR_SETUP_NS away.
-        hw.dir.set_level(Level::from(planned_positive != config::INVERT_DIR));
+        hw.dir.set_level(Level::from(planned_positive != settings.invert_dir));
         // Starts the hardware immediately; awaited at the end of the loop.
         let transmission = step.transmit(&playing);
 
         let now = Instant::now().as_micros();
         let raw = hw.spindle.value();
-        spindle.feed(if config::INVERT_SPINDLE { -raw } else { raw });
+        spindle.feed(if settings.invert_spindle { -raw } else { raw });
         // The segment being planned ends two segments from now.
         let s = predictor.predict(now, spindle.avg, 2 * segment_us);
 
@@ -260,7 +285,7 @@ async fn motion_task(mut hw: MotionHw) {
         };
         let segment = stepgen.next_segment(target);
         planned_positive = segment.positive;
-        encode(&segment, &mut planned);
+        encode(&segment, &stepgen_cfg, levels, &mut planned);
 
         if now - rpm_start.0 >= config::RPM_WINDOW_US {
             let counts = (spindle.pos - rpm_start.1).unsigned_abs();
@@ -313,26 +338,89 @@ async fn touch_task(mut rx: UartRx<'static, Async>) {
 }
 
 #[embassy_executor::task]
-async fn ui_task(mut tx: UartTx<'static, Async>) {
-    let machine = config::machine();
-    let mut ui = Ui::new(config::MAX_PITCH_DU);
+async fn ui_task(
+    mut tx: UartTx<'static, Async>,
+    settings: Settings,
+    origin: Origin,
+    mut store: storage::Store,
+    operator_state: Option<els_core::settings::OperatorState>,
+) {
+    let machine = settings.machine();
+    let mut ui = Ui::new(settings.max_pitch_du as i64);
+    if let Some(state) = operator_state {
+        ui.restore(state);
+    }
     COMMANDS.send(Command::SetPitchDu(ui.pitch.du())).await;
 
+    #[cfg(feature = "setup-on-boot")]
+    if ui.handle(Key::Setup, 0, &STATUS.lock(|s| s.get())).action == Some(Action::StartSetup) {
+        setup::START.signal(());
+    }
+
     Timer::after_millis(config::NEXTION_BOOT_MS).await;
+    let boot_ms = Instant::now().as_millis();
+    match origin {
+        Origin::Saved | Origin::FirstBoot => {}
+        Origin::Corrupt => ui.notify("Settings damaged: defaults", boot_ms, 10_000),
+        Origin::Unsupported => ui.notify("Newer settings: defaults", boot_ms, 10_000),
+    }
     let mut shown: Option<[Text; FIELDS.len()]> = None;
     let mut last_full = Instant::now();
+    let mut saved_state = ui.operator_state();
+    let mut state_changed_at: Option<Instant> = None;
+    let mut restart_at: Option<Instant> = None;
 
     loop {
         let now_ms = Instant::now().as_millis();
-        if let Either::First(key) = select(KEYS.receive(), Timer::after_millis(config::DISPLAY_REFRESH_MS)).await {
-            let out = ui.handle(key, now_ms, &STATUS.lock(|s| s.get()));
-            if let Some(cmd) = out.command {
-                COMMANDS.send(cmd).await;
-                // Let the motion task apply it before we render its status.
-                Timer::after_micros(2 * config::SEGMENT_US as u64).await;
+        let event =
+            select3(KEYS.receive(), setup::SAVE_REQUEST.receive(), Timer::after_millis(config::DISPLAY_REFRESH_MS))
+                .await;
+        let status = STATUS.lock(|s| s.get());
+        let idle = !status.engaged && !status.jogging;
+        match event {
+            Either3::First(key) => {
+                let out = ui.handle(key, now_ms, &status);
+                if let Some(cmd) = out.command {
+                    COMMANDS.send(cmd).await;
+                    // Let the motion task apply it before we render its status.
+                    Timer::after_micros(2 * config::SEGMENT_US as u64).await;
+                }
+                if out.beep {
+                    write_all(&mut tx, nextion::BEEP).await;
+                }
+                match out.action {
+                    Some(Action::StartSetup) => setup::START.signal(()),
+                    Some(Action::ExitSetup) => esp_hal::system::software_reset(),
+                    None => {}
+                }
             }
-            if out.beep {
-                write_all(&mut tx, nextion::BEEP).await;
+            Either3::Second(new_settings) => {
+                // Flash writes stall the CPU, so only while nothing moves.
+                let result = if idle { store.save_settings(&new_settings) } else { Err("Stop jogging first") };
+                if result.is_ok() {
+                    // Give the web page time to confirm, then restart with the new settings.
+                    restart_at = Some(Instant::now() + Duration::from_millis(1_500));
+                    ui.notify("Settings saved: restarting", now_ms, 10_000);
+                }
+                setup::SAVE_RESULT.signal(result);
+            }
+            Either3::Third(()) => {}
+        }
+
+        if restart_at.is_some_and(|t| Instant::now() >= t) {
+            esp_hal::system::software_reset();
+        }
+
+        // Remember pitch, unit and step sizes once they've settled and the carriage is idle.
+        let state = ui.operator_state();
+        if state != saved_state {
+            let changed = *state_changed_at.get_or_insert_with(Instant::now);
+            if idle && changed.elapsed() >= Duration::from_millis(config::STATE_SAVE_DELAY_MS) {
+                if let Err(e) = store.save_state(&state) {
+                    println!("state save failed: {}", e);
+                }
+                saved_state = state;
+                state_changed_at = None;
             }
         }
 
@@ -341,7 +429,7 @@ async fn ui_task(mut tx: UartTx<'static, Async>) {
             last_full = Instant::now();
         }
         let status = STATUS.lock(|s| s.get());
-        let fields = display::render(&ui, &status, &machine, Instant::now().as_millis());
+        let fields = display::render(&ui, &status, &machine, Instant::now().as_millis(), config::SETUP_BANNER);
         for (i, text) in fields.iter().enumerate() {
             if shown.as_ref().is_some_and(|s| s[i] == *text) {
                 continue;

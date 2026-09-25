@@ -4,6 +4,7 @@
 use crate::display::Status;
 use crate::gearbox::Side;
 use crate::pitch::{parse_entry_milli, Pitch, Unit, JOG_SIZES_MILLI, STEP_SIZES_MILLI};
+use crate::settings::OperatorState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -31,6 +32,17 @@ pub enum Key {
     },
     /// Cycle jog distance through [`JOG_SIZES_MILLI`].
     JogCycle,
+    /// Start or leave WiFi setup mode.
+    Setup,
+}
+
+/// Things the UI task itself acts on (not motion commands).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Bring up the setup hotspot and web page.
+    StartSetup,
+    /// Leave setup mode (the firmware restarts to turn WiFi off).
+    ExitSetup,
 }
 
 /// Commands for the motion task.
@@ -49,12 +61,17 @@ pub enum Command {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Outcome {
     pub command: Option<Command>,
+    pub action: Option<Action>,
     pub beep: bool,
 }
 
 impl Outcome {
     fn cmd(c: Command) -> Self {
-        Self { command: Some(c), beep: false }
+        Self { command: Some(c), ..Self::default() }
+    }
+
+    fn action(a: Action) -> Self {
+        Self { action: Some(a), ..Self::default() }
     }
 }
 
@@ -68,6 +85,7 @@ pub struct Ui {
     entry: Option<heapless::String<ENTRY_MAX_LEN>>,
     message: Option<(&'static str, u64)>,
     max_pitch_du: i64,
+    setup_active: bool,
 }
 
 impl Ui {
@@ -79,7 +97,29 @@ impl Ui {
             entry: None,
             message: None,
             max_pitch_du,
+            setup_active: false,
         }
+    }
+
+    /// Restore choices saved before the last power-off.
+    pub fn restore(&mut self, state: OperatorState) {
+        self.pitch = state.pitch;
+        self.step_idx = (state.step_idx as usize).min(STEP_SIZES_MILLI.len() - 1);
+        self.jog_idx = (state.jog_idx as usize).min(JOG_SIZES_MILLI.len() - 1);
+    }
+
+    /// Choices worth saving across power cycles.
+    pub fn operator_state(&self) -> OperatorState {
+        OperatorState { pitch: self.pitch, step_idx: self.step_idx as u8, jog_idx: self.jog_idx as u8 }
+    }
+
+    pub fn setup_active(&self) -> bool {
+        self.setup_active
+    }
+
+    /// Show `msg` on the message line for `duration_ms`.
+    pub fn notify(&mut self, msg: &'static str, now_ms: u64, duration_ms: u64) {
+        self.message = Some((msg, now_ms + duration_ms));
     }
 
     pub fn step_milli(&self) -> u32 {
@@ -130,7 +170,15 @@ impl Ui {
             },
             // Don't engage with a half-typed pitch on screen.
             Key::Engage if self.entry.is_some() => self.reject("Press Enter first", now_ms),
+            Key::Engage if self.setup_active => self.reject("Leave setup first", now_ms),
             Key::Engage if status.jogging => self.reject("Wait for jog to stop", now_ms),
+            Key::Setup if self.setup_active => Outcome::action(Action::ExitSetup),
+            Key::Setup if status.engaged || status.jogging => self.reject("Disengage first", now_ms),
+            Key::Setup => {
+                self.entry = None;
+                self.setup_active = true;
+                Outcome::action(Action::StartSetup)
+            }
             Key::Engage => Outcome::cmd(Command::Engage),
             // Always forward releases so a jog can never be left running.
             Key::Jog { pressed: false, .. } => Outcome::cmd(Command::JogRelease),
@@ -180,7 +228,7 @@ impl Ui {
                 let distance_du = self.jog_milli() as i64 * p.unit.du_per_milli();
                 Outcome::cmd(Command::Jog { left, distance_du })
             }
-            Key::Digit(_) | Key::Point | Key::Backspace | Key::Enter | Key::Engage | Key::Disengage => {
+            Key::Digit(_) | Key::Point | Key::Backspace | Key::Enter | Key::Engage | Key::Disengage | Key::Setup => {
                 unreachable!("handled in Ui::handle")
             }
         }
@@ -211,7 +259,7 @@ impl Ui {
 
     fn reject(&mut self, msg: &'static str, now_ms: u64) -> Outcome {
         self.message = Some((msg, now_ms + MESSAGE_MS));
-        Outcome { command: None, beep: true }
+        Outcome { beep: true, ..Outcome::default() }
     }
 }
 
@@ -323,6 +371,29 @@ mod tests {
         assert_eq!(ui.handle(left(false), 0, &engaged).command, Some(Command::JogRelease));
         let jogging = Status { jogging: true, ..IDLE };
         assert!(ui.handle(Key::Engage, 0, &jogging).beep);
+    }
+
+    #[test]
+    fn setup_mode_enter_refuse_and_exit() {
+        let mut ui = Ui::new(MAX);
+        let engaged = Status { engaged: true, ..IDLE };
+        assert!(ui.handle(Key::Setup, 0, &engaged).beep);
+        assert!(!ui.setup_active());
+        assert_eq!(ui.handle(Key::Setup, 0, &IDLE).action, Some(Action::StartSetup));
+        assert!(ui.setup_active());
+        assert!(ui.handle(Key::Engage, 0, &IDLE).beep);
+        assert_eq!(ui.handle(Key::Setup, 0, &IDLE).action, Some(Action::ExitSetup));
+    }
+
+    #[test]
+    fn operator_state_restores() {
+        let mut ui = Ui::new(MAX);
+        press(&mut ui, &[Key::StepSize(3), Key::Plus, Key::Reverse, Key::ToggleUnit, Key::JogCycle]);
+        let saved = ui.operator_state();
+        let mut fresh = Ui::new(MAX);
+        fresh.restore(saved);
+        assert_eq!(fresh.operator_state(), saved);
+        assert_eq!(fresh.pitch.du(), -254_000);
     }
 
     #[test]

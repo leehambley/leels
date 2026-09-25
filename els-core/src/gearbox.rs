@@ -193,8 +193,17 @@ impl Gearbox {
 
     /// Fractional step beyond `unclamped(spindle)`, in 1/2^32 steps.
     fn unclamped_frac(&self, spindle: i64) -> u32 {
-        let rem = ((spindle - self.s_ref) as i128 * self.num as i128).rem_euclid(self.den as i128);
-        ((rem << 32) / self.den as i128) as u32
+        let d = spindle - self.s_ref;
+        let rem = match d.checked_mul(self.num) {
+            Some(n) => n.rem_euclid(self.den),
+            None => (d as i128 * self.num as i128).rem_euclid(self.den as i128) as i64,
+        };
+        // rem < den; stay in 64-bit arithmetic when the shift fits.
+        if rem < 1 << 31 {
+            (((rem as u64) << 32) / self.den as u64) as u32
+        } else {
+            (((rem as u128) << 32) / self.den as u128) as u32
+        }
     }
 
     /// Spindle count at which the (unclamped) target equals `pos`.

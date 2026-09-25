@@ -21,13 +21,14 @@ cd els-core && cargo test          # logic tests on the host
 cd firmware
 cargo run --release                # ESP32-C6 (default, stable Rust): build, flash, monitor
 cargo build --release
+cargo run --release --features setup-on-boot   # bench test without a display: hotspot at power-up
 cargo +esp s3                      # ESP32-S3: needs the Xtensa toolchain (espup)
 ```
 
-Everything machine- or board-specific is in `firmware/src/config.rs`, grouped
-into pinout, spindle encoder, lead screw and stepper, motion timing, jogging
-and operator interface. Impossible combinations fail the build: a pulse too
-wide for the maximum speed, or a segment too long.
+Board-specific values are in `firmware/src/config.rs`: pinout, motion timing,
+display and hotspot settings, and `DEFAULTS`, the machine settings used until
+you save your own. Machine settings are normally changed without recompiling,
+from the setup page (below).
 - **C6** pins (placeholders; change for your board): encoder 2/3, STEP 4, DIR 5, ENA 6, Nextion TX 22 / RX 23.
 - **S3** pins: NanoEls H5 pinout (encoder 13/14, STEP 35, DIR 42, ENA 41, Nextion TX 43 / RX 44).
 
@@ -61,7 +62,41 @@ Logs go to USB-Serial-JTAG, which leaves both UARTs free.
   - A **hold** longer than 0.4 s runs continuously. It starts at 0.5 mm/s and
     steps up to 2, then 8, then 25 mm/s every second. Releasing brakes to a
     stop. Pressing the other direction while moving also brakes.
-  - Speeds and timings are in `firmware/src/config.rs` (`JOG_*`).
+  - Speeds and timings are set on the setup page.
+- **Setup** (only when disengaged and not jogging) turns on a WiFi hotspot,
+  `LEELS-SETUP` with password `els-setup`. Both are shown on the display.
+  Phones open the settings page automatically as a sign-in page; otherwise
+  browse to `http://192.168.4.1/`. The page covers:
+  - the encoder (lines, backlash, glitch filter, direction);
+  - the lead screw and motor (pitch, steps, start/max speed, acceleration,
+    largest pitch);
+  - driver signals (DIR/ENABLE inversion, STEP polarity, pulse width, DIR
+    setup time);
+  - jog speeds and timings.
+
+  **Save** checks the values, writes them to flash and restarts with WiFi off.
+  Pressing Setup again leaves without saving. Pins stay fixed in the firmware.
+
+  <img src="docs/images/setup-page.png" alt="Setup page on a phone: spindle encoder, lead screw and motor, driver signals and jogging settings, with a Save and restart button" width="300">
+- **Remembered across power-off:** pitch, unit, pitch step and jog distance.
+  They're saved 3 s after the last change, once the carriage is idle. Stops
+  and position are not saved, because the carriage may be moved while the
+  controller is off.
+
+## Saved data
+
+Settings and operator state live in the first four sectors of the flash's NVS
+partition, as raw records (not ESP-IDF NVS). Each record has:
+- a **magic number**, so blank flash (`0xFF`) and random data are told apart;
+- a **format version**, for migrations;
+- the **length**, a **sequence number** and a **CRC32**.
+
+Two slots per record are written alternately, and the newer valid one wins,
+so a power cut during a save keeps the previous copy. Blank flash means
+first boot, and the defaults are used. A damaged record, or one from a newer
+firmware, also falls back to the defaults, and the display says so. Flash
+writes pause the CPU for tens of milliseconds, so they only happen while
+nothing moves.
 
 ## How motion works
 
@@ -107,6 +142,5 @@ would need a custom RMT ring-buffer driver.
 
 ## Not carried over
 
-Saved state (pitch, stops and position are lost on power-off), backlash
-compensation, TPI entry, the max-travel E-stop, and
-enable/disable per axis.
+Saving stops and position across power-off, backlash compensation, TPI
+entry, the max-travel E-stop, and enable/disable per axis.

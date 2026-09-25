@@ -36,6 +36,7 @@ ids, and add the new buttons. The mapping lives in
 | 48 | bLeft | **Jog left**, needs press *and* release events (see below) |
 | 49 | bRight | **Jog right**, needs press *and* release events |
 | 58 | bJogDist | Cycle jog distance .01 / .1 / 1 / 10 (new) |
+| 59 | bSetup | Start / leave the WiFi setup hotspot (new) |
 | 9, 10 | tTurns, tAngle | Zero turns and angle readouts |
 
 For the two jog buttons, tick *Send Component ID* on **both** Touch Press and
@@ -45,7 +46,7 @@ Touch Release events. Every other button only needs the press event.
 
 | objname | content |
 |---------|---------|
-| bStatus | `OFF`, `ON` (engaged) or `SYN` (waiting for thread phase) |
+| bStatus | `OFF`, `ON` (engaged), `SYN` (waiting for thread phase) or `SET` (setup hotspot on) |
 | tPitch | signed pitch, 3 decimals, e.g. `-1.250` |
 | bMeasure | `MM` / `IN` |
 | tStepVal | selected step: `0.001` … `10` |
@@ -55,6 +56,6 @@ Touch Release events. Every other button only needs the press event.
 | tZ | Z position (mm 3 dp / inch 4 dp) |
 | tZLeft / tZRight | distance to left / right stop, blank when unset |
 | tJogVal | jog distance: `0.01` … `10` (new) |
-| t3 | typed number (`Pitch 1.25`), warnings, `Set pitch` |
+| t3 | typed number (`Pitch 1.25`), warnings, `Set pitch`, hotspot name and password in setup mode |
 
 Fields are only resent when their text changes, plus a full refresh every 5 s.

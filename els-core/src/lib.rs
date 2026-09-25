@@ -12,13 +12,17 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod display;
+pub mod dns;
 pub mod gearbox;
 pub mod jog;
 pub mod nextion;
 pub mod pitch;
+pub mod record;
+pub mod settings;
 pub mod spindle;
 pub mod stepgen;
 pub mod ui;
+pub mod web;
 
 /// Fixed machine geometry needed to translate between spindle counts, motor
 /// steps and physical distance.

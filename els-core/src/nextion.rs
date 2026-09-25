@@ -70,6 +70,7 @@ pub fn key_for(touch: Touch) -> Option<Key> {
         52 => Key::Point,
         c @ 53..=57 => Key::StepSize(c - 53),
         58 => Key::JogCycle,
+        59 => Key::Setup,
         _ => return None,
     })
 }

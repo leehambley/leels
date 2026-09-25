@@ -14,7 +14,18 @@ bench = false
 els-core = { path = "../els-core" }
 
 esp-hal = { version = "~1.0", features = ["unstable"] }
-esp-rtos = { version = "0.2", features = ["embassy"] }
+esp-rtos = { version = "0.2", features = ["embassy", "esp-radio"] }
+# WiFi setup portal (only started from the Setup button).
+esp-radio = { version = "0.17", features = ["wifi", "unstable"] }
+esp-alloc = "0.9"
+embassy-net = { version = "0.7", features = ["medium-ethernet", "tcp", "udp", "proto-ipv4"] }
+edge-dhcp = "0.5"
+edge-nal = "0.5"
+edge-nal-embassy = "0.6"
+embedded-io-async = "0.6"
+# Settings and operator state in the NVS partition's flash.
+esp-storage = "0.8"
+embedded-storage = "0.3"
 esp-bootloader-esp-idf = "0.4"
 # Log over USB-Serial-JTAG, leaving the UARTs free (on the S3/H5, UART0's pins drive the Nextion).
 esp-println = { version = "0.16", default-features = false, features = ["critical-section", "jtag-serial"] }
@@ -31,12 +42,16 @@ heapless = "0.8"
 # ESP32-C6 is the primary target (stable Rust). ESP32-S3 builds with
 # `cargo +esp build-s3` and needs the Xtensa toolchain from espup.
 default = ["esp32c6"]
+# Bench testing without a display: start the setup hotspot at power-up.
+setup-on-boot = []
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-rtos/esp32s3",
     "esp-bootloader-esp-idf/esp32s3",
     "esp-println/esp32s3",
     "esp-backtrace/esp32s3",
+    "esp-radio/esp32s3",
+    "esp-storage/esp32s3",
 ]
 esp32c6 = [
     "esp-hal/esp32c6",
@@ -44,6 +59,8 @@ esp32c6 = [
     "esp-bootloader-esp-idf/esp32c6",
     "esp-println/esp32c6",
     "esp-backtrace/esp32c6",
+    "esp-radio/esp32c6",
+    "esp-storage/esp32c6",
 ]
 
 [profile.release]

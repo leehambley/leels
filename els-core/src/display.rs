@@ -24,7 +24,7 @@ pub struct Status {
     pub turn_counts: i64,
 }
 
-pub type Text = heapless::String<24>;
+pub type Text = heapless::String<32>;
 
 /// Nextion object names, in the order `render` returns their text.
 pub const FIELDS: [&str; 12] = [
@@ -42,9 +42,12 @@ pub const FIELDS: [&str; 12] = [
     "tJogVal",
 ];
 
-pub fn render(ui: &Ui, st: &Status, m: &Machine, now_ms: u64) -> [Text; FIELDS.len()] {
+/// `setup_banner` is shown on the message line while setup mode is active.
+pub fn render(ui: &Ui, st: &Status, m: &Machine, now_ms: u64, setup_banner: &str) -> [Text; FIELDS.len()] {
     let unit = ui.pitch.unit;
-    let status = if st.syncing {
+    let status = if ui.setup_active() {
+        "SET"
+    } else if st.syncing {
         "SYN"
     } else if st.engaged {
         "ON"
@@ -62,6 +65,8 @@ pub fn render(ui: &Ui, st: &Status, m: &Machine, now_ms: u64) -> [Text; FIELDS.l
         t
     } else if let Some(msg) = ui.message(now_ms) {
         text(msg)
+    } else if ui.setup_active() {
+        text(setup_banner)
     } else if st.syncing {
         text("Waiting for thread phase")
     } else if ui.pitch.magnitude_milli == 0 {
@@ -181,7 +186,7 @@ mod tests {
             turn_counts: 3600,
             ..IDLE
         };
-        let f = render(&ui, &st, &M, 0);
+        let f = render(&ui, &st, &M, 0, "");
         let f: Vec<&str> = f.iter().map(|t| t.as_str()).collect();
         assert_eq!(f, ["ON", "-1.000", "MM", "1", "300", "1.50", "180.00°", "1.000", "1.000", "", "", "0.1"]);
     }
@@ -192,7 +197,7 @@ mod tests {
         ui.handle(Key::ToggleUnit, 0, &IDLE);
         ui.handle(Key::Digit(4), 0, &IDLE);
         let st = Status { pos: 254, ..IDLE }; // 254 steps = 1.27mm = 0.05"
-        let f = render(&ui, &st, &M, 0);
+        let f = render(&ui, &st, &M, 0, "");
         assert_eq!(f[2], "IN");
         assert_eq!(f[7], "0.0500");
         assert_eq!(f[10], "Pitch 4");
