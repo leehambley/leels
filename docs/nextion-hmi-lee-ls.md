@@ -1,5 +1,10 @@
 # Lee-LS HMI → firmware mapping
 
+> **Historical.** This compared an earlier revision of the HMI with the
+> firmware before it was adapted. The committed HMI (`nextion/lee-ls.HMI`)
+> has a different layout, no `tSpeed`, an added `tMessageLine`, and ids shifted
+> by one. `docs/nextion.md` is the current reference.
+
 This compares `Lee-LS HMI.grid.HMI` (page 0, 33 components) with the
 current firmware: `els-core/src/nextion.rs::key_for`, the `Key` enum in
 `els-core/src/ui.rs`, `els-core/src/display.rs::FIELDS`, and

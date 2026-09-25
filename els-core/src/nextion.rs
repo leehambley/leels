@@ -39,45 +39,85 @@ impl Parser {
     }
 }
 
-/// Component ids on page 0 of the Lee-LS HMI. See docs/nextion.md.
+/// Component ids on page 0 of `nextion/lee-ls.HMI` (checked against the
+/// compiled `nextion/lee-ls.tft`). The Nextion Editor renumbers everything
+/// after a deleted component, so re-check these whenever the HMI changes.
+/// See docs/nextion.md.
+pub mod id {
+    pub const T_RPM: u8 = 1;
+    pub const T_ANGLE: u8 = 2;
+    pub const T_TURNS: u8 = 3;
+    pub const B_LEFT_STOP: u8 = 4;
+    pub const B_RIGHT_STOP: u8 = 5;
+    pub const B_NUM1: u8 = 6;
+    pub const B_NUM2: u8 = 7;
+    pub const B_NUM3: u8 = 8;
+    pub const B_BACKSPACE: u8 = 9;
+    pub const B_NUM4: u8 = 10;
+    pub const B_NUM5: u8 = 11;
+    pub const B_NUM6: u8 = 12;
+    pub const B_NUM7: u8 = 13;
+    pub const B_NUM8: u8 = 14;
+    pub const B_NUM9: u8 = 15;
+    pub const B_NUM0: u8 = 16;
+    pub const B_NUM_OK: u8 = 17;
+    pub const B_NUM_PERIOD: u8 = 18;
+    pub const B_TOGGLE_ENGAGED: u8 = 19;
+    pub const B_REVERSE_TOGGLE: u8 = 20;
+    pub const B_UNITS_TOGGLE: u8 = 21;
+    /// Present in the HMI, not used by the firmware.
+    pub const B_STEP_CYCLE: u8 = 22;
+    pub const T_PITCH: u8 = 23;
+    pub const B_PITCH_001: u8 = 24;
+    pub const B_PITCH_01: u8 = 25;
+    pub const B_PITCH_1: u8 = 26;
+    pub const B_ZERO_Z: u8 = 27;
+    pub const B_JOG_L: u8 = 28;
+    pub const B_JOG_R: u8 = 29;
+    pub const B_CYCLE_JOG_DIST: u8 = 30;
+    pub const T_Z_POS: u8 = 31;
+    pub const B_SETTINGS: u8 = 32;
+    pub const T_MESSAGE_LINE: u8 = 33;
+}
+
 pub fn key_for(touch: Touch) -> Option<Key> {
     if touch.page != 0 {
         return None;
     }
     // Jog buttons and backspace need both press and release events.
     match touch.component {
-        10 if !touch.pressed => return Some(Key::BackspaceReleased), // bBackspace hold
-        29 => return Some(Key::Jog { left: true, pressed: touch.pressed }), // bJogL
-        30 => return Some(Key::Jog { left: false, pressed: touch.pressed }), // bJogR
+        id::B_BACKSPACE if !touch.pressed => return Some(Key::BackspaceReleased),
+        id::B_JOG_L => return Some(Key::Jog { left: true, pressed: touch.pressed }),
+        id::B_JOG_R => return Some(Key::Jog { left: false, pressed: touch.pressed }),
         _ if !touch.pressed => return None,
         _ => {}
     }
     Some(match touch.component {
-        3 | 4 => Key::ZeroTurns, // tAngle, tTurns
-        5 => Key::StopLeft,      // bLeftStop
-        6 => Key::StopRight,     // bRightStop
-        7 => Key::Digit(1),      // bNum1
-        8 => Key::Digit(2),
-        9 => Key::Digit(3),
-        10 => Key::Backspace, // bBackspace
-        11 => Key::Digit(4),
-        12 => Key::Digit(5),
-        13 => Key::Digit(6),
-        14 => Key::Digit(7),
-        15 => Key::Digit(8),
-        16 => Key::Digit(9),
-        17 => Key::Digit(0),
-        18 => Key::Enter,              // bNumOK
-        19 => Key::Point,              // bNumPeriod
-        20 => Key::ToggleEngage,       // bToggleEngaged
-        21 => Key::Reverse,            // bReverseToggle
-        22 => Key::ToggleUnit,         // bUnitsToggle
-        25 => Key::PitchPreset(10),    // bPitch001 "0.01"
-        26 => Key::PitchPreset(100),   // bPitch01 "0.1"
-        27 => Key::PitchPreset(1_000), // bPitch1 "1.0"
-        28 => Key::ZeroZ,              // bZeroZ
-        31 => Key::JogCycle,           // bCycleJogDist
-        33 => Key::Setup,              // bSettings
+        id::T_ANGLE | id::T_TURNS => Key::ZeroTurns,
+        id::B_LEFT_STOP => Key::StopLeft,
+        id::B_RIGHT_STOP => Key::StopRight,
+        id::B_NUM1 => Key::Digit(1),
+        id::B_NUM2 => Key::Digit(2),
+        id::B_NUM3 => Key::Digit(3),
+        id::B_BACKSPACE => Key::Backspace,
+        id::B_NUM4 => Key::Digit(4),
+        id::B_NUM5 => Key::Digit(5),
+        id::B_NUM6 => Key::Digit(6),
+        id::B_NUM7 => Key::Digit(7),
+        id::B_NUM8 => Key::Digit(8),
+        id::B_NUM9 => Key::Digit(9),
+        id::B_NUM0 => Key::Digit(0),
+        id::B_NUM_OK => Key::Enter,
+        id::B_NUM_PERIOD => Key::Point,
+        id::B_TOGGLE_ENGAGED => Key::ToggleEngage,
+        id::B_REVERSE_TOGGLE => Key::Reverse,
+        id::B_UNITS_TOGGLE => Key::ToggleUnit,
+        id::B_PITCH_001 => Key::PitchPreset(10),
+        id::B_PITCH_01 => Key::PitchPreset(100),
+        id::B_PITCH_1 => Key::PitchPreset(1_000),
+        id::B_ZERO_Z => Key::ZeroZ,
+        id::B_CYCLE_JOG_DIST => Key::JogCycle,
+        id::B_SETTINGS => Key::Setup,
         _ => return None,
     })
 }
@@ -130,22 +170,23 @@ mod tests {
     #[test]
     fn parses_touch_events_and_ignores_noise() {
         let mut p = Parser::default();
-        let bytes = [0x88, 0xFF, 0xFF, 0xFF, 0x65, 0x00, 0x14, 0x01, 0xFF, 0xFF, 0xFF];
+        let bytes = [0x88, 0xFF, 0xFF, 0xFF, 0x65, 0x00, 0x13, 0x01, 0xFF, 0xFF, 0xFF];
         let events: Vec<_> = bytes.iter().filter_map(|&b| p.push(b)).collect();
-        assert_eq!(events, vec![Touch { page: 0, component: 20, pressed: true }]);
+        assert_eq!(events, vec![Touch { page: 0, component: id::B_TOGGLE_ENGAGED, pressed: true }]);
         assert_eq!(key_for(events[0]), Some(Key::ToggleEngage));
     }
 
-    /// Bytes captured from the real display on the Lee-LS HMI.
+    /// Framing as captured from the real display; component ids updated to
+    /// the current HMI.
     #[test]
     fn captured_display_trace() {
         let bytes = [
             0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, // power-on
             0x88, 0xFF, 0xFF, 0xFF, // ready
-            0x65, 0x00, 0x13, 0x01, 0xFF, 0xFF, 0xFF, // bNumPeriod press
-            0x65, 0x00, 0x14, 0x01, 0xFF, 0xFF, 0xFF, // bToggleEngaged press
-            0x65, 0x00, 0x1C, 0x01, 0xFF, 0xFF, 0xFF, // bZeroZ press
-            0x65, 0x00, 0x1C, 0x00, 0xFF, 0xFF, 0xFF, // bZeroZ release
+            0x65, 0x00, 0x12, 0x01, 0xFF, 0xFF, 0xFF, // bNumPeriod press
+            0x65, 0x00, 0x13, 0x01, 0xFF, 0xFF, 0xFF, // bToggleEngaged press
+            0x65, 0x00, 0x1B, 0x01, 0xFF, 0xFF, 0xFF, // bZeroZ press
+            0x65, 0x00, 0x1B, 0x00, 0xFF, 0xFF, 0xFF, // bZeroZ release
         ];
         let mut p = Parser::default();
         let keys: Vec<_> = bytes.iter().filter_map(|&b| p.push(b)).map(key_for).collect();
@@ -155,17 +196,21 @@ mod tests {
     #[test]
     fn maps_digits_and_steps() {
         let t = |c| Touch { page: 0, component: c, pressed: true };
-        let digits = [17, 7, 8, 9, 11, 12, 13, 14, 15, 16];
+        use id::*;
+        let digits = [B_NUM0, B_NUM1, B_NUM2, B_NUM3, B_NUM4, B_NUM5, B_NUM6, B_NUM7, B_NUM8, B_NUM9];
         for (d, &c) in digits.iter().enumerate() {
             assert_eq!(key_for(t(c)), Some(Key::Digit(d as u8)));
         }
-        assert_eq!(key_for(t(27)), Some(Key::PitchPreset(1_000)));
-        assert_eq!(key_for(Touch { pressed: false, ..t(17) }), None);
-        assert_eq!(key_for(Touch { pressed: false, ..t(30) }), Some(Key::Jog { left: false, pressed: false }));
-        assert_eq!(key_for(t(31)), Some(Key::JogCycle));
-        // Static labels and unused ids do nothing.
-        assert_eq!(key_for(t(1)), None);
-        assert_eq!(key_for(t(24)), None);
+        assert_eq!(key_for(t(B_PITCH_1)), Some(Key::PitchPreset(1_000)));
+        assert_eq!(key_for(Touch { pressed: false, ..t(B_NUM0) }), None);
+        assert_eq!(key_for(Touch { pressed: false, ..t(B_JOG_R) }), Some(Key::Jog { left: false, pressed: false }));
+        assert_eq!(key_for(Touch { pressed: false, ..t(B_BACKSPACE) }), Some(Key::BackspaceReleased));
+        assert_eq!(key_for(t(B_CYCLE_JOG_DIST)), Some(Key::JogCycle));
+        assert_eq!(key_for(t(B_SETTINGS)), Some(Key::Setup));
+        // Static labels and unused components do nothing.
+        for c in [T_RPM, T_PITCH, T_Z_POS, T_MESSAGE_LINE, B_STEP_CYCLE, 34] {
+            assert_eq!(key_for(t(c)), None);
+        }
     }
 
     #[test]

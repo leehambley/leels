@@ -1,7 +1,10 @@
 # Nextion page layout
 
-Only page 0 of the Lee-LS HMI is used. The firmware identifies buttons by
-**component id**. Nextion sends `65 00 <id> 01 FF FF FF` on press when *Send
+Only page 0 of the Lee-LS HMI (`nextion/lee-ls.HMI`, compiled as
+`nextion/lee-ls.tft`) is used. The firmware identifies buttons by
+**component id**. The ids live in `els-core/src/nextion.rs::id`; the Nextion
+Editor renumbers every component after a deleted one, so re-check them
+whenever the HMI changes. Nextion sends `65 00 <id> 01 FF FF FF` on press when *Send
 Component ID* is ticked for the Touch Press Event. It writes text by
 **objname**. The mapping lives in `els-core/src/nextion.rs::key_for`; the
 written fields are in `els-core/src/display.rs::FIELDS`.
@@ -13,24 +16,24 @@ and the history of the naming decisions.
 
 | id | objname | action |
 |---:|---------|--------|
-| 20 | bToggleEngaged | **Engage** the virtual half-nut when idle (refused while a number is being typed, in setup, or while jogging); **disengage** when engaged or syncing |
-| 21 | bReverseToggle | **Reverse**: flip pitch direction |
-| 22 | bUnitsToggle | Toggle **MM / IN** (number kept; refused if it would exceed 1") |
-| 25 | bPitch001 | Set pitch to 0.01 (current unit and direction), a keypad shortcut |
-| 26 | bPitch01 | Set pitch to 0.1 |
-| 27 | bPitch1 | Set pitch to 1.0 |
-| 7–9, 11–17 | bNum1…bNum9, bNum0 | Digits (`bNum1`=7, `bNum2`=8, `bNum3`=9, `bNum4`…`bNum9`=11…16, `bNum0`=17) |
-| 19 | bNumPeriod | Decimal point |
-| 10 | bBackspace | Delete the last typed character; **hold ≥ 0.7 s** (on release) to clear the whole entry. Needs press *and* release events |
-| 18 | bNumOK | Apply typed pitch |
-| 5 | bLeftStop | Set the Z left stop at the current position, or clear it (see *Stops* below) |
-| 6 | bRightStop | Same for the right stop |
-| 28 | bZeroZ | Zero the Z position readout **and clear both stops** (`Stops cleared` on the message line for 5 s or until the next press). Refused while engaged with a stop set |
-| 29 | bJogL | **Jog left**; needs press *and* release events |
-| 30 | bJogR | **Jog right**; needs press *and* release events |
-| 31 | bCycleJogDist | Cycle jog distance .01 / .1 / 1 / 10 (current unit) |
-| 33 | bSettings | Start / leave the WiFi setup hotspot |
-| 3, 4 | tAngle, tTurns | Zero turns and angle readouts |
+| 19 | bToggleEngaged | **Engage** the virtual half-nut when idle (refused while a number is being typed, in setup, or while jogging); **disengage** when engaged or syncing |
+| 20 | bReverseToggle | **Reverse**: flip pitch direction |
+| 21 | bUnitsToggle | Toggle **MM / IN** (number kept; refused if it would exceed 1") |
+| 24 | bPitch001 | Set pitch to 0.01 (current unit and direction), a keypad shortcut |
+| 25 | bPitch01 | Set pitch to 0.1 |
+| 26 | bPitch1 | Set pitch to 1.0 |
+| 6–8, 10–16 | bNum1…bNum9, bNum0 | Digits (`bNum1`=6, `bNum2`=7, `bNum3`=8, `bNum4`…`bNum9`=10…15, `bNum0`=16) |
+| 18 | bNumPeriod | Decimal point |
+| 9 | bBackspace | Delete the last typed character; **hold ≥ 0.7 s** (on release) to clear the whole entry. Needs press *and* release events |
+| 17 | bNumOK | Apply typed pitch |
+| 4 | bLeftStop | Set the Z left stop at the current position, or clear it (see *Stops* below) |
+| 5 | bRightStop | Same for the right stop |
+| 27 | bZeroZ | Zero the Z position readout **and clear both stops** (`Stops cleared` on the message line for 5 s or until the next press). Refused while engaged with a stop set |
+| 28 | bJogL | **Jog left**; needs press *and* release events |
+| 29 | bJogR | **Jog right**; needs press *and* release events |
+| 30 | bCycleJogDist | Cycle jog distance .01 / .1 / 1 / 10 (current unit) |
+| 32 | bSettings | Start / leave the WiFi setup hotspot |
+| 2, 3 | tAngle, tTurns | Zero turns and angle readouts |
 
 For the two jog buttons and `bBackspace`, tick *Send Component ID* on **both**
 Touch Press and Touch Release events. Every other entry above only needs the
