@@ -17,7 +17,7 @@ jobs:
       run:
         working-directory: els-core
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -30,12 +30,13 @@ jobs:
 
   firmware-esp32c6:
     name: Firmware ESP32-C6
+    needs: core
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: firmware
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: riscv32imac-unknown-none-elf
@@ -46,20 +47,21 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --release -- -D warnings
       - run: cargo build --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: els-esp32c6
           path: firmware/target/riscv32imac-unknown-none-elf/release/els
 
   firmware-esp32s3:
     name: Firmware ESP32-S3
+    needs: core
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: firmware
     steps:
-      - uses: actions/checkout@v4
-      - uses: esp-rs/xtensa-toolchain@v1.6
+      - uses: actions/checkout@v7
+      - uses: esp-rs/xtensa-toolchain@v1.7.0
         with:
           buildtargets: esp32s3
           ldproxy: false
@@ -67,7 +69,7 @@ jobs:
         with:
           workspaces: firmware
       - run: cargo +esp build-s3
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: els-esp32s3
           path: firmware/target/xtensa-esp32s3-none-elf/release/els
