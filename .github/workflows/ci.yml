@@ -13,6 +13,9 @@ jobs:
   core:
     name: Core logic tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write # test report check run
     defaults:
       run:
         working-directory: els-core
@@ -26,7 +29,31 @@ jobs:
           workspaces: els-core
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      # JUnit report path is set in els-core/.config/nextest.toml.
+      - run: cargo nextest run --profile ci
+      # Per-test results as a check run, failure annotations, and a table in the
+      # job summary. Statuses are written as text (not icons only) so the
+      # summary reads well with screen readers and high-contrast themes.
+      - uses: mikepenz/action-junit-report@v6
+        if: ${{ !cancelled() }}
+        with:
+          report_paths: els-core/target/nextest/ci/junit.xml
+          check_name: Core logic test report
+          require_tests: true
+          include_passed: true
+          detailed_summary: true
+          include_time_in_summary: true
+          simplified_summary: false
+      # The raw JUnit XML, for downloading or opening in other tools.
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: core-test-report-junit
+          path: els-core/target/nextest/ci/junit.xml
+          if-no-files-found: error
 
   firmware-esp32c6:
     name: Firmware ESP32-C6

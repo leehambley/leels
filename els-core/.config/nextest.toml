@@ -1,0 +1,7 @@
+# CI profile: run every test (no fail-fast) and write a JUnit report for the
+# GitHub test report and artifact.
+[profile.ci]
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"
