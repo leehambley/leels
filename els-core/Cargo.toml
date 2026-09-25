@@ -1,0 +1,8 @@
+[package]
+name = "els-core"
+version = "0.1.0"
+edition = "2021"
+description = "Hardware-independent logic for the single-axis electronic gearbox (host-testable, no_std)."
+
+[dependencies]
+heapless = "0.8"

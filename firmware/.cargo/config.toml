@@ -1,0 +1,19 @@
+# Build/flash with the aliases, one per chip:
+#   cargo c6            ESP32-C6 (stable toolchain)
+#   cargo +esp s3       ESP32-S3 (Xtensa toolchain from `espup install`)
+[alias]
+c6 = "run --release --features esp32c6 --target riscv32imac-unknown-none-elf"
+build-c6 = "build --release --features esp32c6 --target riscv32imac-unknown-none-elf"
+s3 = "run --release --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core"
+build-s3 = "build --release --features esp32s3 --target xtensa-esp32s3-none-elf -Zbuild-std=core"
+
+[target.riscv32imac-unknown-none-elf]
+runner = "espflash flash --monitor --chip esp32c6"
+rustflags = ["-C", "force-frame-pointers"]
+
+[target.xtensa-esp32s3-none-elf]
+runner = "espflash flash --monitor --chip esp32s3"
+rustflags = ["-C", "link-arg=-nostartfiles"]
+
+[env]
+ESP_LOG = "info"
