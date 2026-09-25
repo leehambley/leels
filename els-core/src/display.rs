@@ -28,7 +28,17 @@ pub type Text = heapless::String<24>;
 
 /// Nextion object names, in the order `render` returns their text.
 pub const FIELDS: [&str; 12] = [
-    "bStatus", "tPitch", "bMeasure", "tStepVal", "tRPMVal", "tTurnsVal", "tAngleVal", "tZ", "tZLeft", "tZRight", "t3",
+    "bStatus",
+    "tPitch",
+    "bMeasure",
+    "tStepVal",
+    "tRPMVal",
+    "tTurnsVal",
+    "tAngleVal",
+    "tZ",
+    "tZLeft",
+    "tZRight",
+    "t3",
     "tJogVal",
 ];
 
@@ -173,10 +183,7 @@ mod tests {
         };
         let f = render(&ui, &st, &M, 0);
         let f: Vec<&str> = f.iter().map(|t| t.as_str()).collect();
-        assert_eq!(
-            f,
-            ["ON", "-1.000", "MM", "1", "300", "1.50", "180.00°", "1.000", "1.000", "", "", "0.1"]
-        );
+        assert_eq!(f, ["ON", "-1.000", "MM", "1", "300", "1.50", "180.00°", "1.000", "1.000", "", "", "0.1"]);
     }
 
     #[test]

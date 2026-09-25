@@ -25,7 +25,10 @@ pub enum Key {
     ZeroZ,
     ZeroTurns,
     /// Jog button pressed or released (`left` = towards the left stop).
-    Jog { left: bool, pressed: bool },
+    Jog {
+        left: bool,
+        pressed: bool,
+    },
     /// Cycle jog distance through [`JOG_SIZES_MILLI`].
     JogCycle,
 }

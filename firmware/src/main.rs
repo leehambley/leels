@@ -137,12 +137,8 @@ async fn main(spawner: Spawner) {
     motion_spawner.spawn(motion_task(hw)).unwrap();
 
     let uart_config = uart::Config::default().with_baudrate(config::NEXTION_BAUD);
-    let (rx, tx) = Uart::new(p.UART1, uart_config)
-        .unwrap()
-        .with_tx(pins.nextion_tx)
-        .with_rx(pins.nextion_rx)
-        .into_async()
-        .split();
+    let (rx, tx) =
+        Uart::new(p.UART1, uart_config).unwrap().with_tx(pins.nextion_tx).with_rx(pins.nextion_rx).into_async().split();
     spawner.spawn(touch_task(rx)).unwrap();
     spawner.spawn(ui_task(tx)).unwrap();
 }

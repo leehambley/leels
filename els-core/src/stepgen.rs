@@ -107,7 +107,16 @@ impl StepGen {
     pub fn new(cfg: StepGenConfig) -> Self {
         let dv = cfg.acceleration as i128 * cfg.segment_ticks as i128 * ONE as i128
             / (cfg.tick_hz as i128 * cfg.tick_hz as i128);
-        Self { cfg, p: 0, v: 0, issued: 0, positive: true, speed_cap: None, dv_per_segment: (dv as i64).max(1), prev_target: None }
+        Self {
+            cfg,
+            p: 0,
+            v: 0,
+            issued: 0,
+            positive: true,
+            speed_cap: None,
+            dv_per_segment: (dv as i64).max(1),
+            prev_target: None,
+        }
     }
 
     /// Motor position in steps (pulses issued).
@@ -311,8 +320,7 @@ mod tests {
         let mut g = StepGen::new(CFG);
         let steps = run(&mut g, 6_000, ramp_target(6_000, 2_000));
         let settled = 2_500 * CFG.segment_ticks as i64;
-        let late: Vec<i64> =
-            steps.windows(2).filter(|w| w[0].0 > settled).map(|w| w[1].0 - w[0].0).collect();
+        let late: Vec<i64> = steps.windows(2).filter(|w| w[0].0 > settled).map(|w| w[1].0 - w[0].0).collect();
         let (min, max) = (*late.iter().min().unwrap(), *late.iter().max().unwrap());
         // Ideal interval is 1666.67 ticks (166.7 µs).
         assert!(min >= 1_665 && max <= 1_668, "interval spread {min}..{max}");

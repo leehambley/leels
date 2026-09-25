@@ -142,7 +142,8 @@ impl Jog {
 mod tests {
     use super::*;
 
-    const CFG: JogConfig = JogConfig { hold_after_us: 400_000, level_every_us: 1_000_000, speeds: [100, 400, 1600, 5000] };
+    const CFG: JogConfig =
+        JogConfig { hold_after_us: 400_000, level_every_us: 1_000_000, speeds: [100, 400, 1600, 5000] };
     const FREE: Bounds = Bounds { lo: i64::MIN, hi: i64::MAX };
 
     #[test]

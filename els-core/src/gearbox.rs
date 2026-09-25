@@ -58,18 +58,7 @@ pub struct Gearbox {
 
 impl Gearbox {
     pub fn new(m: Machine) -> Self {
-        Self {
-            m,
-            num: 0,
-            den: 1,
-            engaged: false,
-            s_ref: 0,
-            p_ref: 0,
-            left: None,
-            right: None,
-            sync_q: None,
-            target: 0,
-        }
+        Self { m, num: 0, den: 1, engaged: false, s_ref: 0, p_ref: 0, left: None, right: None, sync_q: None, target: 0 }
     }
 
     pub fn engaged(&self) -> bool {

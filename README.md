@@ -1,5 +1,7 @@
 # leels: single-axis electronic gearbox
 
+[![CI](https://github.com/leehambley/leels/actions/workflows/ci.yml/badge.svg)](https://github.com/leehambley/leels/actions/workflows/ci.yml)
+
 A Rust/Embassy port of the gearbox mode of
 [NanoEls H5](https://github.com/kachurovskiy/nanoels), cut down to one job:
 the Z lead screw follows the spindle at the selected pitch. There is no WiFi,
