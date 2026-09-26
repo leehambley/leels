@@ -370,6 +370,26 @@ mod tests {
     }
 
     #[test]
+    fn jog_hold_moves_continuously() {
+        use crate::jog::{Bounds, Jog, JogConfig};
+        let mut g = StepGen::new(CFG);
+        let mut jog = Jog::new(JogConfig {
+            hold_after_us: 400_000,
+            level_every_us: 1_000_000,
+            speeds: [400, 1_600, 6_400, 20_000],
+        });
+        let seg_us = (CFG.segment_ticks / (CFG.tick_hz / 1_000_000)) as u64;
+        jog.press(1, 20, 1, 0, 0, 0);
+        // Hold for 2 s: past the tap, then continuous at 1,600 steps/s rising to 6,400.
+        for i in 0..8_000 {
+            let (target, cap) = jog.update(g.pos(), Bounds::new(None, None), i * seg_us);
+            g.set_speed_cap(cap);
+            g.next_segment(target);
+        }
+        assert!(g.pos() > 3_000, "hold moved only {} steps", g.pos());
+    }
+
+    #[test]
     fn acceleration_is_limited() {
         let mut g = StepGen::new(CFG);
         let mut last = 0u32;

@@ -17,8 +17,9 @@ use crate::gearbox::Target;
 pub const JOG_LEVELS: usize = 4;
 
 /// Distance a hold aims ahead, in steps; it re-aims every tick so this just
-/// has to exceed any braking distance.
-const HOLD_LOOKAHEAD: i64 = 1 << 40;
+/// has to exceed any braking distance. StepGen works in 32.32 fixed point, so
+/// positions must stay well inside ±2^31 steps.
+pub(crate) const HOLD_LOOKAHEAD: i64 = 1 << 24;
 
 #[derive(Clone, Copy, Debug)]
 pub struct JogConfig {
