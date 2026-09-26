@@ -25,6 +25,8 @@ extern crate alloc;
 
 #[macro_use]
 mod config;
+#[cfg(feature = "hil")]
+mod hil;
 mod setup;
 mod storage;
 
@@ -43,17 +45,18 @@ use embassy_futures::select::{select3, Either3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::pipe::Pipe;
 use embassy_time::{Duration, Instant, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::gpio::{Flex, Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::interrupt::Priority;
 use esp_hal::pcnt::{channel, unit::Unit, Pcnt};
 use esp_hal::rmt::{self, PulseCode, Rmt, TxChannelConfig, TxChannelCreator};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::{self, Uart, UartRx, UartTx};
+use esp_hal::uart::{self, Uart, UartTx};
 use esp_hal::Async;
 use esp_println::println;
 use esp_rtos::embassy::InterruptExecutor;
@@ -63,6 +66,9 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 static COMMANDS: Channel<CriticalSectionRawMutex, Command, 16> = Channel::new();
 static KEYS: Channel<CriticalSectionRawMutex, Key, 16> = Channel::new();
+/// Bytes from the display, parsed into touch events by `touch_task`. Filled
+/// from the Nextion UART, or from USB in `hil` builds.
+static NEXTION_RX: Pipe<CriticalSectionRawMutex, 128> = Pipe::new();
 static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::new(Status {
     engaged: false,
     syncing: false,
@@ -92,8 +98,10 @@ struct MotionHw {
     spindle: Unit<'static, 0>,
     // The RMT channel handle isn't `Send`, so it's configured inside the task.
     rmt: esp_hal::peripherals::RMT<'static>,
-    step: esp_hal::gpio::AnyPin<'static>,
-    dir: Output<'static>,
+    step: esp_hal::gpio::interconnect::OutputSignal<'static>,
+    #[cfg(feature = "hil")]
+    step_counter: hil::StepCounter,
+    dir: Flex<'static>,
     // Held so the pins stay configured.
     _enable: Output<'static>,
     _encoder_a: Input<'static>,
@@ -119,6 +127,12 @@ async fn main(spawner: Spawner) {
     let mut store = storage::Store::new(p.FLASH);
     let (settings, origin) = store.load_settings(config::DEFAULTS, config::TIMING);
     let operator_state = store.load_state(settings.max_pitch_du as i64);
+    // Tests start from the defaults every time, whatever is saved on the board.
+    #[cfg(feature = "hil")]
+    let (settings, origin, operator_state) = {
+        let _ = (settings, origin, operator_state);
+        (config::DEFAULTS, Origin::FirstBoot, None)
+    };
     println!("settings: {:?}", origin);
     setup::CURRENT.lock(|c| c.set(Some(settings)));
 
@@ -144,11 +158,18 @@ async fn main(spawner: Spawner) {
     unit.resume();
 
     let enabled = if settings.invert_enable { Level::Low } else { Level::High };
+    let step = Flex::new(pins.step);
+    // Flex so the hil build can read the pin back as well.
+    let dir = Output::new(pins.dir, Level::Low, OutputConfig::default()).into_flex();
+    #[cfg(feature = "hil")]
+    let step_counter = hil::StepCounter::new(pcnt.unit1, step.peripheral_input(), dir.peripheral_input(), &settings);
     let hw = MotionHw {
         spindle: unit,
         rmt: p.RMT,
-        step: pins.step,
-        dir: Output::new(pins.dir, Level::Low, OutputConfig::default()),
+        step: step.into_peripheral_output(),
+        #[cfg(feature = "hil")]
+        step_counter,
+        dir,
         _enable: Output::new(pins.enable, enabled, OutputConfig::default()),
         _encoder_a: encoder_a,
         _encoder_b: encoder_b,
@@ -162,9 +183,57 @@ async fn main(spawner: Spawner) {
     let uart_config = uart::Config::default().with_baudrate(config::NEXTION_BAUD);
     let (rx, tx) =
         Uart::new(p.UART1, uart_config).unwrap().with_tx(pins.nextion_tx).with_rx(pins.nextion_rx).into_async().split();
-    spawner.spawn(touch_task(rx)).unwrap();
+    // In `hil` builds the tests type into USB instead; the unconnected UART
+    // RX line picks up noise that would corrupt their touch events.
+    #[cfg(not(feature = "hil"))]
+    spawner.spawn(uart_rx_task(rx)).unwrap();
+    #[cfg(feature = "hil")]
+    {
+        drop(rx);
+        let (usb_rx, _) = esp_hal::usb_serial_jtag::UsbSerialJtag::new(p.USB_DEVICE).into_async().split();
+        spawner.spawn(hil::usb_rx_task(usb_rx)).unwrap();
+        spawner.spawn(hil::report_task()).unwrap();
+    }
+    spawner.spawn(touch_task()).unwrap();
     spawner.spawn(ui_task(tx, settings, origin, store, operator_state)).unwrap();
     spawner.spawn(setup::setup_task(spawner, p.WIFI)).unwrap();
+    #[cfg(feature = "bench")]
+    spawner.spawn(bench_task()).unwrap();
+}
+
+/// Repeating jog sequence for scoping STEP/DIR without a display: taps and
+/// holds in both directions, injected as touch keys so it goes through the UI.
+#[cfg(feature = "bench")]
+#[embassy_executor::task]
+async fn bench_task() {
+    Timer::after_millis(config::NEXTION_BOOT_MS + 500).await;
+    let steps: [(&str, bool, u64); 4] =
+        [("tap right", false, 100), ("tap left", true, 100), ("hold right", false, 2_000), ("hold left", true, 2_000)];
+    loop {
+        for (name, left, press_ms) in steps {
+            println!("bench: {}", name);
+            KEYS.send(Key::Jog { left, pressed: true }).await;
+            Timer::after_millis(press_ms).await;
+            KEYS.send(Key::Jog { left, pressed: false }).await;
+            Timer::after_millis(1_500).await;
+        }
+    }
+}
+
+/// Log Nextion traffic, one command per line (0xFF terminators dropped).
+#[cfg(any(feature = "bench", feature = "hil"))]
+fn log_nextion(dir: &str, bytes: &[u8]) {
+    for chunk in bytes.split(|&b| b == 0xFF).filter(|c| !c.is_empty()) {
+        let mut line: heapless::String<256> = heapless::String::new();
+        for &b in chunk {
+            let _ = if b.is_ascii_graphic() || b == b' ' {
+                line.push(b as char).map_err(|_| core::fmt::Error)
+            } else {
+                core::fmt::Write::write_fmt(&mut line, format_args!("\\x{:02x}", b))
+            };
+        }
+        println!("nextion {}: {}", dir, line);
+    }
 }
 
 /// Convert a planned segment into RMT pulse codes.
@@ -246,6 +315,8 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
         let transmission = step.transmit(&playing);
 
         let now = Instant::now().as_micros();
+        #[cfg(feature = "hil")]
+        hw.step_counter.poll(stepgen.pos());
         let raw = hw.spindle.value();
         spindle.feed(if settings.invert_spindle { -raw } else { raw });
         // The segment being planned ends two segments from now.
@@ -324,18 +395,38 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
     }
 }
 
+#[cfg(not(feature = "hil"))]
 #[embassy_executor::task]
-async fn touch_task(mut rx: UartRx<'static, Async>) {
-    let mut parser = Parser::default();
+async fn uart_rx_task(mut rx: uart::UartRx<'static, Async>) {
     let mut buf = [0u8; 32];
+    // An idle or unconnected RX line can glitch continuously: log errors at most once a second.
+    let mut errors = 0u32;
+    let mut last_error_log: Option<Instant> = None;
     loop {
         let n = match rx.read_async(&mut buf).await {
             Ok(n) => n,
             Err(e) => {
-                println!("nextion rx error: {:?}", e);
+                errors += 1;
+                if last_error_log.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+                    println!("nextion rx error: {:?} ({} in the last second)", e, errors);
+                    errors = 0;
+                    last_error_log = Some(Instant::now());
+                }
                 continue;
             }
         };
+        NEXTION_RX.write_all(&buf[..n]).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn touch_task() {
+    let mut parser = Parser::default();
+    let mut buf = [0u8; 32];
+    loop {
+        let n = NEXTION_RX.read(&mut buf).await;
+        #[cfg(any(feature = "bench", feature = "hil"))]
+        log_nextion("rx", &buf[..n]);
         for &b in &buf[..n] {
             if let Some(key) = parser.push(b).and_then(nextion::key_for) {
                 KEYS.send(key).await;
@@ -365,6 +456,8 @@ async fn ui_task(
     }
 
     Timer::after_millis(config::NEXTION_BOOT_MS).await;
+    #[cfg(feature = "hil")]
+    println!("hil: ready");
     let boot_ms = Instant::now().as_millis();
     match origin {
         Origin::Saved | Origin::FirstBoot => {}
@@ -387,6 +480,8 @@ async fn ui_task(
         let idle = !status.engaged && !status.jogging;
         match event {
             Either3::First(key) => {
+                #[cfg(any(feature = "bench", feature = "hil"))]
+                println!("key: {:?}", key);
                 let out = ui.handle(key, now_ms, &status);
                 if let Some(cmd) = out.command {
                     COMMANDS.send(cmd).await;
@@ -423,7 +518,8 @@ async fn ui_task(
         let state = ui.operator_state();
         if state != saved_state {
             let changed = *state_changed_at.get_or_insert_with(Instant::now);
-            if idle && changed.elapsed() >= Duration::from_millis(config::STATE_SAVE_DELAY_MS) {
+            if idle && changed.elapsed() >= Duration::from_millis(config::STATE_SAVE_DELAY_MS) && !cfg!(feature = "hil")
+            {
                 if let Err(e) = store.save_state(&state) {
                     println!("state save failed: {}", e);
                 }
@@ -467,6 +563,8 @@ async fn ui_task(
 }
 
 async fn write_all(tx: &mut UartTx<'static, Async>, mut bytes: &[u8]) {
+    #[cfg(any(feature = "bench", feature = "hil"))]
+    log_nextion("tx", bytes);
     while !bytes.is_empty() {
         match tx.write_async(bytes).await {
             Ok(n) => bytes = &bytes[n..],

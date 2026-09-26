@@ -10,6 +10,7 @@ no other modes, no X/Y axis, no keyboard or joystick, and no GCode.
 ```
 els-core/   hardware-independent logic, no_std, host-tested (cargo test)
 firmware/   esp-hal + esp-rtos (Embassy) binary; ESP32-C6 primary, ESP32-S3 secondary
+hil/        hardware-in-the-loop tests: drive a board as the display would
 docs/       Nextion page layout
 ```
 
@@ -38,6 +39,38 @@ chip. For anything beyond slow speeds, fit external pull-ups: see
 [Speed limits](#speed-limits-compared-with-nanoels-h5).
 
 Logs go to USB-Serial-JTAG, which leaves both UARTs free.
+
+### Bench debugging without a display
+
+```sh
+cargo run --release --features bench
+```
+
+Starts the hotspot at power-up, logs all Nextion UART traffic
+(`nextion tx:` / `nextion rx:`), and repeats a jog sequence (tap right, tap
+left, 2 s hold right, 2 s hold left) so STEP and DIR can be scoped. ENA stays
+enabled.
+
+### Hardware-in-the-loop tests
+
+The `hil` firmware build takes Nextion touch events over the USB port, into
+the same buffer the display's UART fills, so the touch parser, UI, motion
+task, RMT and STEP pin all run for real. A second PCNT unit counts the pulses
+on the STEP pin inside the chip (no wiring) and the count is logged next to
+the planned position. The host tests in `hil/` reset the board, tap
+components by their HMI object names, and assert on the text and colours the
+firmware sends to the display and on the step counts.
+
+```sh
+cd firmware && cargo build --release --features hil
+espflash flash --chip esp32c6 target/riscv32imac-unknown-none-elf/release/els
+cd ../hil && LEELS_PORT=/dev/cu.usbmodem1101 cargo test
+```
+
+Without `LEELS_PORT` the tests are skipped. The `hil` build ignores saved
+settings and doesn't read the Nextion UART, and the spindle isn't simulated
+yet, so threading while engaged isn't covered. Plug the board straight into
+the computer: through chains of hubs, flashing and the tests can fail.
 
 ## Operation
 

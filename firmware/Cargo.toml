@@ -44,6 +44,12 @@ heapless = "0.8"
 default = ["esp32c6"]
 # Bench testing without a display: start the setup hotspot at power-up.
 setup-on-boot = []
+# Bench debugging without a display: hotspot at power-up, Nextion UART
+# traffic logged, and a repeating jog sequence on STEP/DIR for a scope.
+bench = ["setup-on-boot"]
+# Hardware-in-the-loop tests (hil/): touch input over USB, display commands
+# and STEP pulse counts in the log, defaults instead of saved settings.
+hil = []
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-rtos/esp32s3",

@@ -1,0 +1,10 @@
+[package]
+name = "els-hil"
+version = "0.1.0"
+edition = "2021"
+description = "Hardware-in-the-loop tests: drive the firmware on a board as the Nextion display would."
+publish = false
+
+[dependencies]
+# No libudev: only opening a named port is needed.
+serialport = { version = "4.8", default-features = false }
