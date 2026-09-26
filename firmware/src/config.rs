@@ -18,17 +18,19 @@ pub struct Pins {
     pub nextion_rx: esp_hal::gpio::AnyPin<'static>,
 }
 
-/// ESP32-C6 (primary target). Avoid strapping pins 8, 9, 15, USB 12/13 and
-/// flash 24-30.
+/// ESP32-C6-DevKitC-1 (primary target). Encoder A/B/Z and Nextion on J1/J3,
+/// driver on J3 18-20. Avoid strapping pins 4, 5, 8, 9, 15, USB 12/13, the
+/// console UART 16/17 and flash 24-30. GPIO7 is kept free for encoder Z
+/// (index), which the firmware doesn't read yet.
 #[cfg(feature = "esp32c6")]
 macro_rules! take_pins {
     ($p:ident) => {
         $crate::config::Pins {
             encoder_a: esp_hal::gpio::Pin::degrade($p.GPIO2),
             encoder_b: esp_hal::gpio::Pin::degrade($p.GPIO3),
-            step: esp_hal::gpio::Pin::degrade($p.GPIO4),
-            dir: esp_hal::gpio::Pin::degrade($p.GPIO5),
-            enable: esp_hal::gpio::Pin::degrade($p.GPIO6),
+            step: esp_hal::gpio::Pin::degrade($p.GPIO18),
+            dir: esp_hal::gpio::Pin::degrade($p.GPIO19),
+            enable: esp_hal::gpio::Pin::degrade($p.GPIO20),
             nextion_tx: esp_hal::gpio::Pin::degrade($p.GPIO22),
             nextion_rx: esp_hal::gpio::Pin::degrade($p.GPIO23),
         }
