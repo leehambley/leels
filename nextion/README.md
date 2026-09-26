@@ -8,7 +8,7 @@
 
 The `.tft` was compiled from this exact `.HMI`: every component's geometry in
 the HMI appears in the `.tft`'s compiled page, and its compiled components
-are in the HMI's id order (1–33).
+are in the HMI's id order (1–35).
 
 **When you change the HMI:** recompile the `.tft`, replace both files
 together, and regenerate `SHA256SUMS`. If you added or deleted a component,

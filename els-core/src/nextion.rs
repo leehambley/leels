@@ -65,19 +65,20 @@ pub mod id {
     pub const B_TOGGLE_ENGAGED: u8 = 19;
     pub const B_REVERSE_TOGGLE: u8 = 20;
     pub const B_UNITS_TOGGLE: u8 = 21;
-    /// Present in the HMI, not used by the firmware.
-    pub const B_STEP_CYCLE: u8 = 22;
-    pub const T_PITCH: u8 = 23;
-    pub const B_PITCH_001: u8 = 24;
-    pub const B_PITCH_01: u8 = 25;
-    pub const B_PITCH_1: u8 = 26;
-    pub const B_ZERO_Z: u8 = 27;
-    pub const B_JOG_L: u8 = 28;
-    pub const B_JOG_R: u8 = 29;
-    pub const B_CYCLE_JOG_DIST: u8 = 30;
-    pub const T_Z_POS: u8 = 31;
-    pub const B_SETTINGS: u8 = 32;
-    pub const T_MESSAGE_LINE: u8 = 33;
+    pub const T_PITCH: u8 = 22;
+    pub const B_PITCH_001: u8 = 23;
+    pub const B_PITCH_01: u8 = 24;
+    pub const B_PITCH_1: u8 = 25;
+    pub const B_ZERO_Z: u8 = 26;
+    pub const B_JOG_L: u8 = 27;
+    pub const B_JOG_R: u8 = 28;
+    pub const B_CYCLE_JOG_DIST: u8 = 29;
+    pub const T_Z_POS: u8 = 30;
+    pub const B_SETTINGS: u8 = 31;
+    pub const T_MESSAGE_LINE: u8 = 32;
+    pub const B_PITCH_005: u8 = 33;
+    pub const B_PITCH_05: u8 = 34;
+    pub const B_PITCH_5: u8 = 35;
 }
 
 pub fn key_for(touch: Touch) -> Option<Key> {
@@ -115,6 +116,9 @@ pub fn key_for(touch: Touch) -> Option<Key> {
         id::B_PITCH_001 => Key::PitchPreset(10),
         id::B_PITCH_01 => Key::PitchPreset(100),
         id::B_PITCH_1 => Key::PitchPreset(1_000),
+        id::B_PITCH_005 => Key::PitchPreset(50),
+        id::B_PITCH_05 => Key::PitchPreset(500),
+        id::B_PITCH_5 => Key::PitchPreset(5_000),
         id::B_ZERO_Z => Key::ZeroZ,
         id::B_CYCLE_JOG_DIST => Key::JogCycle,
         id::B_SETTINGS => Key::Setup,
@@ -185,8 +189,8 @@ mod tests {
             0x88, 0xFF, 0xFF, 0xFF, // ready
             0x65, 0x00, 0x12, 0x01, 0xFF, 0xFF, 0xFF, // bNumPeriod press
             0x65, 0x00, 0x13, 0x01, 0xFF, 0xFF, 0xFF, // bToggleEngaged press
-            0x65, 0x00, 0x1B, 0x01, 0xFF, 0xFF, 0xFF, // bZeroZ press
-            0x65, 0x00, 0x1B, 0x00, 0xFF, 0xFF, 0xFF, // bZeroZ release
+            0x65, 0x00, 0x1A, 0x01, 0xFF, 0xFF, 0xFF, // bZeroZ press
+            0x65, 0x00, 0x1A, 0x00, 0xFF, 0xFF, 0xFF, // bZeroZ release
         ];
         let mut p = Parser::default();
         let keys: Vec<_> = bytes.iter().filter_map(|&b| p.push(b)).map(key_for).collect();
@@ -201,14 +205,24 @@ mod tests {
         for (d, &c) in digits.iter().enumerate() {
             assert_eq!(key_for(t(c)), Some(Key::Digit(d as u8)));
         }
-        assert_eq!(key_for(t(B_PITCH_1)), Some(Key::PitchPreset(1_000)));
+        let presets = [
+            (B_PITCH_001, 10),
+            (B_PITCH_005, 50),
+            (B_PITCH_01, 100),
+            (B_PITCH_05, 500),
+            (B_PITCH_1, 1_000),
+            (B_PITCH_5, 5_000),
+        ];
+        for (c, milli) in presets {
+            assert_eq!(key_for(t(c)), Some(Key::PitchPreset(milli)));
+        }
         assert_eq!(key_for(Touch { pressed: false, ..t(B_NUM0) }), None);
         assert_eq!(key_for(Touch { pressed: false, ..t(B_JOG_R) }), Some(Key::Jog { left: false, pressed: false }));
         assert_eq!(key_for(Touch { pressed: false, ..t(B_BACKSPACE) }), Some(Key::BackspaceReleased));
         assert_eq!(key_for(t(B_CYCLE_JOG_DIST)), Some(Key::JogCycle));
         assert_eq!(key_for(t(B_SETTINGS)), Some(Key::Setup));
         // Static labels and unused components do nothing.
-        for c in [T_RPM, T_PITCH, T_Z_POS, T_MESSAGE_LINE, B_STEP_CYCLE, 34] {
+        for c in [T_RPM, T_PITCH, T_Z_POS, T_MESSAGE_LINE, 36] {
             assert_eq!(key_for(t(c)), None);
         }
     }

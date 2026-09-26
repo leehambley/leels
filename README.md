@@ -48,7 +48,7 @@ See [docs/nextion.md](docs/nextion.md) for what each one does.
 
 - **Pitch** is a number plus a unit. Type it on the keypad and press **OK**
   (the pending number shows in amber with a cursor; hold **<-** to clear it),
-  or tap a preset (**0.01 / 0.1 / 1.0**). **REVERSE** flips direction.
+  or tap a preset (**0.01 / 0.05 / 0.1 / 0.5 / 1.0 / 5.0**). **REVERSE** flips direction.
   **UNIT** keeps the number and changes the unit (0.100 mm becomes 0.100").
   Pitch is capped at 1". Pitch can't be changed while engaged: disengage
   first.

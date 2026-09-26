@@ -19,20 +19,23 @@ and the history of the naming decisions.
 | 19 | bToggleEngaged | **Engage** the virtual half-nut when idle (refused while a number is being typed, in setup, or while jogging); **disengage** when engaged or syncing |
 | 20 | bReverseToggle | **Reverse**: flip pitch direction |
 | 21 | bUnitsToggle | Toggle **MM / IN** (number kept; refused if it would exceed 1") |
-| 24 | bPitch001 | Set pitch to 0.01 (current unit and direction), a keypad shortcut |
-| 25 | bPitch01 | Set pitch to 0.1 |
-| 26 | bPitch1 | Set pitch to 1.0 |
+| 23 | bPitch001 | Set pitch to 0.01 (current unit and direction), a keypad shortcut |
+| 33 | bPitch005 | Set pitch to 0.05 |
+| 24 | bPitch01 | Set pitch to 0.1 |
+| 34 | bPitch05 | Set pitch to 0.5 |
+| 25 | bPitch1 | Set pitch to 1.0 |
+| 35 | bPitch5 | Set pitch to 5.0 (inch: refused, over the 1" limit) |
 | 6–8, 10–16 | bNum1…bNum9, bNum0 | Digits (`bNum1`=6, `bNum2`=7, `bNum3`=8, `bNum4`…`bNum9`=10…15, `bNum0`=16) |
 | 18 | bNumPeriod | Decimal point |
 | 9 | bBackspace | Delete the last typed character; **hold ≥ 0.7 s** (on release) to clear the whole entry. Needs press *and* release events |
 | 17 | bNumOK | Apply typed pitch |
 | 4 | bLeftStop | Set the Z left stop at the current position, or clear it (see *Stops* below) |
 | 5 | bRightStop | Same for the right stop |
-| 27 | bZeroZ | Zero the Z position readout **and clear both stops** (`Stops cleared` on the message line for 5 s or until the next press). Refused while engaged with a stop set |
-| 28 | bJogL | **Jog left**; needs press *and* release events |
-| 29 | bJogR | **Jog right**; needs press *and* release events |
-| 30 | bCycleJogDist | Cycle jog distance .01 / .1 / 1 / 10 (current unit) |
-| 32 | bSettings | Start / leave the WiFi setup hotspot |
+| 26 | bZeroZ | Zero the Z position readout **and clear both stops** (`Stops cleared` on the message line for 5 s or until the next press). Refused while engaged with a stop set |
+| 27 | bJogL | **Jog left**; needs press *and* release events |
+| 28 | bJogR | **Jog right**; needs press *and* release events |
+| 29 | bCycleJogDist | Cycle jog distance .01 / .1 / 1 / 10 (current unit) |
+| 31 | bSettings | Start / leave the WiFi setup hotspot |
 | 2, 3 | tAngle, tTurns | Zero turns and angle readouts |
 
 For the two jog buttons and `bBackspace`, tick *Send Component ID* on **both**
