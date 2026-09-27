@@ -86,7 +86,12 @@ See [docs/nextion.md](docs/nextion.md) for what each one does.
   Pitch is capped at 1". Pitch can't be changed while engaged: disengage
   first.
 - **Engage / Disengage** is one button: it closes the virtual half-nut at the
-  current position, or opens it, stopping the lead screw immediately.
+  current position, or opens it, stopping the lead screw immediately. The
+  thread is kept while disengaged: jog back and engage again at the same pitch
+  and the button shows `Syncing` until the spindle reaches the thread's phase,
+  so the next pass follows the same groove (single-start threads). Changing
+  the pitch while disengaged starts a new thread. Jog a little in the cutting
+  direction before engaging to take up lead screw backlash.
 - **Stops**: pressing Stop L or Stop R sets that stop at the current position.
   The button turns amber and shows the distance still to go to the stop; it turns red with `AT STOP`
   while the carriage rests on it. Pressing it again clears it, but only while
