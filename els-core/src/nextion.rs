@@ -126,23 +126,43 @@ pub fn key_for(touch: Touch) -> Option<Key> {
     })
 }
 
-/// The output buffer is too small for the command.
+/// The output buffer is too small for the command. Nothing was appended:
+/// a half-written command would reach the display as a different one.
 #[derive(Debug, PartialEq, Eq)]
 pub struct BufferFull;
+
+/// Run `write`, undoing its partial output if it runs out of room.
+fn whole<const N: usize>(
+    out: &mut heapless::Vec<u8, N>,
+    write: impl FnOnce(&mut heapless::Vec<u8, N>) -> Result<(), ()>,
+) -> Result<(), BufferFull> {
+    let len = out.len();
+    write(out).map_err(|()| {
+        out.truncate(len);
+        BufferFull
+    })
+}
+
+/// Append each part in turn.
+fn parts<const N: usize>(out: &mut heapless::Vec<u8, N>, parts: &[&[u8]]) -> Result<(), BufferFull> {
+    whole(out, |out| parts.iter().try_for_each(|p| out.extend_from_slice(p).map_err(|_| ())))
+}
 
 /// Append `id.txt="text"` + terminator. Text goes as UTF-8, the encoding of
 /// both fonts in the HMI (a font only shows the characters it was generated
 /// with). Quotes, backslashes and control characters become `?`.
 pub fn encode_text<const N: usize>(out: &mut heapless::Vec<u8, N>, id: &str, text: &str) -> Result<(), BufferFull> {
-    out.extend_from_slice(id.as_bytes()).map_err(|_| BufferFull)?;
-    out.extend_from_slice(b".txt=\"").map_err(|_| BufferFull)?;
-    for c in text.chars() {
-        let c = if matches!(c, '"' | '\\') || c.is_control() { '?' } else { c };
-        let mut utf8 = [0u8; 4];
-        out.extend_from_slice(c.encode_utf8(&mut utf8).as_bytes()).map_err(|_| BufferFull)?;
-    }
-    out.push(b'"').map_err(|_| BufferFull)?;
-    out.extend_from_slice(&TERM).map_err(|_| BufferFull)
+    whole(out, |out| {
+        out.extend_from_slice(id.as_bytes()).map_err(|_| ())?;
+        out.extend_from_slice(b".txt=\"").map_err(|_| ())?;
+        for c in text.chars() {
+            let c = if matches!(c, '"' | '\\') || c.is_control() { '?' } else { c };
+            let mut utf8 = [0u8; 4];
+            out.extend_from_slice(c.encode_utf8(&mut utf8).as_bytes()).map_err(|_| ())?;
+        }
+        out.push(b'"').map_err(|_| ())?;
+        out.extend_from_slice(&TERM).map_err(|_| ())
+    })
 }
 
 /// Append `id.attr=value` + terminator, e.g. `bLeftStop.bco=63488`.
@@ -155,24 +175,28 @@ pub fn encode_num<const N: usize>(
     use core::fmt::Write;
     let mut num: heapless::String<10> = heapless::String::new();
     let _ = write!(num, "{value}");
-    for part in [id.as_bytes(), b".", attr.as_bytes(), b"=", num.as_bytes(), &TERM] {
-        out.extend_from_slice(part).map_err(|_| BufferFull)?;
-    }
-    Ok(())
+    parts(out, &[id.as_bytes(), b".", attr.as_bytes(), b"=", num.as_bytes(), &TERM])
 }
 
 /// Short beep through the display's speaker.
 pub const BEEP: &[u8] = b"play 0,0,0\xFF\xFF\xFF";
 
+/// Append `baud=<rate>` + terminator: switch the display's serial rate.
+pub fn encode_baud<const N: usize>(out: &mut heapless::Vec<u8, N>, rate: u32) -> Result<(), BufferFull> {
+    use core::fmt::Write;
+    let mut num: heapless::String<10> = heapless::String::new();
+    let _ = write!(num, "{rate}");
+    parts(out, &[b"baud=", num.as_bytes(), &TERM])
+}
+
 /// Reload page 0: every component back to its HMI colours, touch enabled.
-pub const RELOAD_PAGE: &[u8] = b"page 0\xFF\xFF\xFF";
+/// The leading terminator ends any partial command first, e.g. the baud
+/// handshake arriving as noise when the display is already at our rate.
+pub const RELOAD_PAGE: &[u8] = b"\xFF\xFF\xFFpage 0\xFF\xFF\xFF";
 
 /// Append `tsw id,0|1` + terminator: turn a component's touch events off or on.
 pub fn encode_touch<const N: usize>(out: &mut heapless::Vec<u8, N>, id: &str, enabled: bool) -> Result<(), BufferFull> {
-    for part in [b"tsw ".as_slice(), id.as_bytes(), if enabled { b",1" } else { b",0" }, &TERM] {
-        out.extend_from_slice(part).map_err(|_| BufferFull)?;
-    }
-    Ok(())
+    parts(out, &[b"tsw ", id.as_bytes(), if enabled { b",1" } else { b",0" }, &TERM])
 }
 
 #[cfg(test)]
@@ -253,5 +277,18 @@ mod tests {
         v.clear();
         encode_touch(&mut v, "bJogL", false).unwrap();
         assert_eq!(&v[..], b"tsw bJogL,0\xFF\xFF\xFF");
+        v.clear();
+        encode_baud(&mut v, 115_200).unwrap();
+        assert_eq!(&v[..], b"baud=115200\xFF\xFF\xFF");
+    }
+
+    #[test]
+    fn a_command_that_does_not_fit_appends_nothing() {
+        let mut v: heapless::Vec<u8, 24> = heapless::Vec::new();
+        encode_touch(&mut v, "bToggleEngaged", false).unwrap();
+        let before = v.clone();
+        assert_eq!(encode_num(&mut v, "bToggleEngaged", "bco", 6371), Err(BufferFull));
+        assert_eq!(encode_text(&mut v, "bToggleEngaged", "Engage"), Err(BufferFull));
+        assert_eq!(v, before);
     }
 }

@@ -180,9 +180,31 @@ async fn main(spawner: Spawner) {
     let motion_spawner = motion_executor.start(Priority::Priority3);
     motion_spawner.spawn(motion_task(hw, settings)).unwrap();
 
-    let uart_config = uart::Config::default().with_baudrate(config::NEXTION_BAUD);
-    let (rx, tx) =
-        Uart::new(p.UART1, uart_config).unwrap().with_tx(pins.nextion_tx).with_rx(pins.nextion_rx).into_async().split();
+    let uart_config = uart::Config::default().with_baudrate(config::NEXTION_BOOT_BAUD);
+    let mut uart = Uart::new(p.UART1, uart_config).unwrap().with_tx(pins.nextion_tx).with_rx(pins.nextion_rx);
+    // Wait for the display to boot, then move it from the HMI's rate to ours.
+    // If it's already at ours (only the ESP32 restarted, e.g. leaving setup),
+    // this arrives as noise and is ignored.
+    Timer::after_millis(config::NEXTION_BOOT_MS).await;
+    let mut cmd: heapless::Vec<u8, 32> = heapless::Vec::new();
+    let _ = nextion::encode_baud(&mut cmd, config::NEXTION_BAUD);
+    #[cfg(feature = "nextion-log")]
+    log_nextion("tx", &cmd);
+    let mut pending = &cmd[..];
+    while !pending.is_empty() {
+        match uart.write(pending) {
+            Ok(n) => pending = &pending[n..],
+            Err(e) => {
+                println!("nextion tx error: {:?}", e);
+                break;
+            }
+        }
+    }
+    let _ = uart.flush();
+    // The display switches once the command is complete; give it a moment.
+    Timer::after_millis(50).await;
+    uart.apply_config(&uart_config.with_baudrate(config::NEXTION_BAUD)).unwrap();
+    let (rx, tx) = uart.into_async().split();
     // In `hil` builds the tests type into USB instead; the unconnected UART
     // RX line picks up noise that would corrupt their touch events.
     #[cfg(not(feature = "hil"))]
@@ -556,7 +578,7 @@ async fn ui_task(
         setup::START.signal(());
     }
 
-    Timer::after_millis(config::NEXTION_BOOT_MS).await;
+    // (main waited for the display to boot before switching its baud rate.)
     // The display keeps its state when only the ESP32 restarts (e.g. leaving
     // setup), so put back the HMI's colours and touch settings first.
     write_all(&mut tx, nextion::RELOAD_PAGE).await;
@@ -644,7 +666,8 @@ async fn ui_task(
             if shown.as_ref().is_some_and(|s| s[i] == *text) {
                 continue;
             }
-            let mut cmd: heapless::Vec<u8, 64> = heapless::Vec::new();
+            // Up to 40 characters of UTF-8 plus the name and syntax.
+            let mut cmd: heapless::Vec<u8, 160> = heapless::Vec::new();
             if nextion::encode_text(&mut cmd, FIELDS[i], text).is_ok() {
                 write_all(&mut tx, &cmd).await;
             }
@@ -670,10 +693,14 @@ async fn ui_task(
         if ui.setup_active() && !locked {
             let (bco, pco) = display::LOCKED_COLOURS;
             for name in display::SETUP_LOCKED {
-                let mut cmd: heapless::Vec<u8, 64> = heapless::Vec::new();
-                if nextion::encode_touch(&mut cmd, name, false).is_ok() && !name.starts_with('t') {
-                    let _ = nextion::encode_num(&mut cmd, name, "bco", bco.into());
-                    let _ = nextion::encode_num(&mut cmd, name, "pco", pco.into());
+                // tsw + bco + pco for the longest name is about 75 bytes.
+                let mut cmd: heapless::Vec<u8, 128> = heapless::Vec::new();
+                let ok = nextion::encode_touch(&mut cmd, name, false).is_ok()
+                    && (name.starts_with('t')
+                        || nextion::encode_num(&mut cmd, name, "bco", bco.into()).is_ok()
+                            && nextion::encode_num(&mut cmd, name, "pco", pco.into()).is_ok());
+                if !ok {
+                    println!("nextion: lock command for {} too long", name);
                 }
                 write_all(&mut tx, &cmd).await;
             }

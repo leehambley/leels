@@ -131,8 +131,11 @@ const _: () = assert!(TIMING.segment_ticks <= 32_767, "a segment must fit one RM
 // Operator interface
 // ---------------------------------------------------------------------------
 
-/// Must match `baud=` in the HMI's Program.s (the Nextion Editor default, 9600).
-pub const NEXTION_BAUD: u32 = 9_600;
+/// The display's rate after power-up: `baud=` in the HMI's Program.s (the
+/// Nextion Editor default is 9600)...
+pub const NEXTION_BOOT_BAUD: u32 = 9_600;
+/// ...and the rate the firmware switches it to at boot.
+pub const NEXTION_BAUD: u32 = 115_200;
 /// Nextion needs time to boot before it accepts commands.
 pub const NEXTION_BOOT_MS: u64 = 1_300;
 pub const DISPLAY_REFRESH_MS: u64 = 100;
