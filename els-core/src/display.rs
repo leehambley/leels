@@ -112,11 +112,10 @@ pub const SETUP_LOCKED: [&str; 30] = [
     "tTurns",
 ];
 
-/// Leading symbols on `tPitch` and `tZPos`. Those use font 1 in the HMI, so
-/// it must include these glyphs (see docs/nextion.md). Font 1 fits about 8
-/// characters at 56 px, so there's no room for words.
-pub const PITCH_SYMBOL: &str = "↻";
-pub const Z_SYMBOL: &str = "⇄";
+/// Leading letters on `tPitch` and `tZPos`. Font 1 in the HMI (56 px, ASCII
+/// only) fits about 9 characters, so there's no room for words.
+pub const PITCH_SYMBOL: &str = "P";
+pub const Z_SYMBOL: &str = "Z";
 
 /// Components whose `(bco, pco)` the firmware sets, in [`field_colours`] order.
 pub const COLOUR_FIELDS: [&str; 4] = ["bLeftStop", "bRightStop", "tPitch", "bReverseToggle"];
@@ -358,12 +357,12 @@ mod tests {
             f,
             [
                 "Disengage",
-                "↻-1.000mm",
+                "P-1.000mm",
                 "UNIT: MM",
                 "RPM 300",
                 "TURNS 1.50",
                 "ANGLE 180.00°",
-                "⇄1.000",
+                "Z1.000",
                 "|< 1.000mm",
                 "Set stop >|",
                 "JOG DIST 0.1mm",
@@ -422,8 +421,8 @@ mod tests {
         ui.handle(Key::PitchPreset(5_000), 0, &IDLE);
         let st = Status { pos: -199_999, ..IDLE }; // -999.995mm
         let f = render(&ui, &st, &M, 0, "");
-        assert_eq!(f[1], "↻-5.000mm");
-        assert_eq!(f[6], "⇄-999.995");
+        assert_eq!(f[1], "P-5.000mm");
+        assert_eq!(f[6], "Z-999.995");
         for i in [1, 6] {
             assert!(f[i].chars().count() <= 9, "{}", f[i]);
         }
@@ -461,10 +460,10 @@ mod tests {
         let st = Status { pos: 254, ..IDLE }; // 254 steps = 1.27mm = 0.05"
         let f = render(&ui, &st, &M, 0, "");
         assert_eq!(f[2], "UNIT: IN");
-        assert_eq!(f[6], "⇄0.0500");
+        assert_eq!(f[6], "Z0.0500");
         assert_eq!(f[9], "JOG DIST 0.1in");
-        assert_eq!(f[1], "↻4_");
-        assert_eq!(render(&ui, &st, &M, CURSOR_BLINK_MS, "")[1], "↻4");
+        assert_eq!(f[1], "P4_");
+        assert_eq!(render(&ui, &st, &M, CURSOR_BLINK_MS, "")[1], "P4");
         assert_eq!(f[10], "OK to apply, <- delete, hold <- clear");
         assert_eq!(field_colours(&ui, &st)[2], PITCH_COLOURS[1]);
         assert!(f[10].chars().count() <= 40);
