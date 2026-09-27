@@ -11,6 +11,11 @@
 //! spindle brings the carriage back within less than one turn. Removing a stop
 //! the carriage is resting on puts the gearbox into "sync": the carriage holds
 //! until the spindle reaches the thread phase again, then continues.
+//!
+//! The thread (the reference line) outlives disengaging: engaging again at
+//! the same pitch also syncs, so the carriage can be jogged back and re-engaged
+//! for the next pass (single-start threads). Changing the pitch while
+//! disengaged starts a new thread on the next engage.
 
 use crate::Machine;
 
@@ -47,6 +52,8 @@ pub struct Gearbox {
     num: i64,
     den: i64,
     engaged: bool,
+    /// `s_ref`/`p_ref` hold a thread for the current ratio, to rejoin on engage.
+    thread: bool,
     s_ref: i64,
     p_ref: i64,
     left: Option<i64>,
@@ -58,7 +65,19 @@ pub struct Gearbox {
 
 impl Gearbox {
     pub fn new(m: Machine) -> Self {
-        Self { m, num: 0, den: 1, engaged: false, s_ref: 0, p_ref: 0, left: None, right: None, sync_q: None, target: 0 }
+        Self {
+            m,
+            num: 0,
+            den: 1,
+            engaged: false,
+            thread: false,
+            s_ref: 0,
+            p_ref: 0,
+            left: None,
+            right: None,
+            sync_q: None,
+            target: 0,
+        }
     }
 
     pub fn engaged(&self) -> bool {
@@ -83,22 +102,36 @@ impl Gearbox {
         let num = pitch_du * self.m.motor_steps;
         let den = self.m.screw_du * self.m.counts_per_rev;
         let g = gcd(num.unsigned_abs(), den.unsigned_abs()).max(1) as i64;
+        let (num, den) = (num / g, den / g);
+        if (num, den) == (self.num, self.den) {
+            return; // Same pitch again: keep the thread.
+        }
         if self.engaged {
             self.p_ref = self.target;
             self.s_ref = spindle;
             self.sync_q = None;
+        } else {
+            self.thread = false;
         }
-        self.num = num / g;
-        self.den = den / g;
+        self.num = num;
+        self.den = den;
     }
 
-    /// Close the virtual half-nut at the current motor position.
+    /// Close the virtual half-nut at the current motor position. With a
+    /// thread from an earlier pass at this pitch, the carriage holds
+    /// (`syncing`) until the spindle reaches that thread's phase at `pos`.
     pub fn engage(&mut self, spindle: i64, pos: i64) {
         self.engaged = true;
-        self.s_ref = spindle;
-        self.p_ref = pos;
         self.target = pos;
         self.sync_q = None;
+        if self.thread && self.num != 0 {
+            let d = spindle - self.spindle_at(pos);
+            self.sync_q = Some(d.div_euclid(self.m.counts_per_rev));
+        } else {
+            self.s_ref = spindle;
+            self.p_ref = pos;
+            self.thread = self.num != 0;
+        }
     }
 
     /// Open the virtual half-nut; the motor stops where it is.
@@ -316,6 +349,53 @@ mod tests {
         // Crossing 6000 (= 1200 mod 2400) re-syncs and follows backwards.
         assert_eq!(g.update(5880).pos, 90);
         assert!(!g.syncing());
+    }
+
+    #[test]
+    fn reengage_waits_for_thread_phase() {
+        let mut g = engaged_1mm();
+        assert_eq!(g.update(2400).pos, 200);
+        g.disengage(200);
+        // Jogged back to 0; the thread passes 0 at s = 0 mod 2400.
+        g.engage(5000, 0);
+        assert!(g.syncing());
+        assert_eq!(g.update(5000), Target::whole(0, true));
+        assert_eq!(g.update(7199).pos, 0);
+        assert_eq!(g.update(7200).pos, 0);
+        assert!(!g.syncing());
+        // Same helix as the first pass (s / 12), three turns behind.
+        assert_eq!(g.update(8400).pos, 8400 / 12 - 3 * 200);
+    }
+
+    #[test]
+    fn reengage_mid_turn_phase() {
+        let mut g = engaged_1mm();
+        g.update(1000);
+        g.disengage(50);
+        // Z = 50 is on the thread at s = 600 mod 2400.
+        g.engage(3100, 50);
+        assert_eq!(g.update(3100), Target::whole(50, true));
+        assert_eq!(g.update(5399).pos, 50);
+        assert!(g.syncing());
+        assert_eq!(g.update(5400).pos, 50);
+        assert!(!g.syncing());
+        assert_eq!(g.update(5520).pos, 60);
+    }
+
+    #[test]
+    fn pitch_change_starts_a_new_thread() {
+        let mut g = engaged_1mm();
+        g.update(1000);
+        g.disengage(83);
+        g.set_pitch_du(20_000, 1000);
+        g.engage(1234, 0);
+        assert!(!g.syncing());
+        assert_eq!(g.update(1234 + 1200).pos, 200);
+        // Selecting the same pitch again keeps it.
+        g.disengage(200);
+        g.set_pitch_du(20_000, 5000);
+        g.engage(5000, 0);
+        assert!(g.syncing());
     }
 
     #[test]

@@ -80,10 +80,12 @@ pub const DEFAULTS: Settings = Settings {
     screw_du: 20_000,
     motor_steps: 10_000,
     // steps/s, steps/s, steps/s². 100k steps/s = 600 rpm = 20 mm/s, under
-    // the ~124k limit of 32 steps per 250 µs segment.
+    // the ~124k limit of 32 steps per 250 µs segment. The carriage follows
+    // spindle speed changes only within `acceleration`: 2M steps/s² (0-600
+    // rpm in 50 ms) keeps up with a 2 mm thread slowing 12,000 rpm/s.
     speed_start: 2_000,
     speed_max: 100_000,
-    acceleration: 200_000,
+    acceleration: 2_000_000,
     // Largest pitch accepted, deci-microns (254000 = 1").
     max_pitch_du: 254_000,
     // Driver signals. STEP idles high and pulses low on the NanoEls H5.

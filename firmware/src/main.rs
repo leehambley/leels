@@ -322,6 +322,9 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
     let mut enc_log = (0u64, hw._encoder_a.level(), hw._encoder_b.level(), 0u32, 0u32);
     #[cfg(feature = "encoder-log")]
     let (mut gpio_last, mut gpio_toggled) = (0u32, 0u32);
+    // Largest following error (steps behind the gearbox) while engaged.
+    #[cfg(feature = "encoder-log")]
+    let mut max_lag = 0i64;
     // Read the DIR pad back, to catch a pin held away from its driven level.
     #[cfg(feature = "encoder-log")]
     hw.dir.set_input_enable(true);
@@ -416,6 +419,13 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
             target
         };
         let segment = stepgen.next_segment(target);
+        #[cfg(feature = "encoder-log")]
+        if gearbox.engaged() && !target.is_final {
+            let lag = target.pos - stepgen.pos();
+            if lag.abs() > max_lag.abs() {
+                max_lag = lag;
+            }
+        }
         planned_positive = segment.positive;
         encode(&segment, &stepgen_cfg, levels, &mut planned);
 
@@ -441,12 +451,14 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
             gpio_last = gpio_in;
             if now - enc_log.0 >= 500_000 {
                 println!(
-                    "encoder: A {:?} B {:?} sw edges A {} B {} | pcnt raw {} pos {} | rpm {} | gpio in {:08x} toggled {:08x} | lp in {:02x} | z steps {} dir {:?} pad {:?} jog {:?}",
+                    "encoder: A {:?} B {:?} sw edges A {} B {} | pcnt raw {} pos {} | rpm {} | gpio in {:08x} toggled {:08x} | lp in {:02x} | z steps {} dir {:?} pad {:?} jog {:?} | engaged {} syncing {} max lag {}",
                     a, b, enc_log.3, enc_log.4, raw, spindle.pos, rpm, gpio_in, gpio_toggled, lp_in(),
-                    stepgen.pos(), hw.dir.output_level(), hw.dir.level(), jog.view(stepgen.pos(), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now)
+                    stepgen.pos(), hw.dir.output_level(), hw.dir.level(), jog.view(stepgen.pos(), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now),
+                    gearbox.engaged(), gearbox.syncing(), max_lag
                 );
                 enc_log = (now, a, b, 0, 0);
                 gpio_toggled = 0;
+                max_lag = 0;
             }
         }
 
