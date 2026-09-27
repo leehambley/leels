@@ -52,6 +52,8 @@ bench = ["setup-on-boot", "nextion-log"]
 hil = ["nextion-log"]
 # Log every byte to and from the display, and each decoded key.
 nextion-log = []
+# Log encoder pin levels, software-counted edges, PCNT count and RPM twice a second.
+encoder-log = []
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-rtos/esp32s3",

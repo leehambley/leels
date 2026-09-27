@@ -21,13 +21,19 @@ pub struct Pins {
 /// ESP32-C6-DevKitC-1 (primary target). Encoder A/B/Z and Nextion on J1/J3,
 /// driver on J3 18-20. Avoid strapping pins 4, 5, 8, 9, 15, USB 12/13, the
 /// console UART 16/17 and flash 24-30. GPIO7 is kept free for encoder Z
-/// (index), which the firmware doesn't read yet.
+/// (index), which the firmware doesn't read yet. GPIO2/3 took 5 V pull-ups
+/// and may be damaged.
+///
+/// S2-SVD servo: STEP/DIR sink the drive's opto inputs directly, no level
+/// shifter: CN2 PP+ (3) and PD+ (4) to 3V3, PP- (14) to STEP, PD- (5) to DIR,
+/// GND (1) to GND. ENA is unused (the drive's enable is a 12-24 V input): set
+/// Pn003 = 1 so the drive enables itself at power-up.
 #[cfg(feature = "esp32c6")]
 macro_rules! take_pins {
     ($p:ident) => {
         $crate::config::Pins {
-            encoder_a: esp_hal::gpio::Pin::degrade($p.GPIO2),
-            encoder_b: esp_hal::gpio::Pin::degrade($p.GPIO3),
+            encoder_a: esp_hal::gpio::Pin::degrade($p.GPIO10),
+            encoder_b: esp_hal::gpio::Pin::degrade($p.GPIO11),
             step: esp_hal::gpio::Pin::degrade($p.GPIO18),
             dir: esp_hal::gpio::Pin::degrade($p.GPIO19),
             enable: esp_hal::gpio::Pin::degrade($p.GPIO20),

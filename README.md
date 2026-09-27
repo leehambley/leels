@@ -30,7 +30,7 @@ Board-specific values are in `firmware/src/config.rs`: pinout, motion timing,
 display and hotspot settings, and `DEFAULTS`, the machine settings used until
 you save your own. Machine settings are normally changed without recompiling,
 from the setup page (below).
-- **C6** pins (ESP32-C6-DevKitC-1): encoder A 2 / B 3 (Z reserved on 7, not read yet), STEP 18, DIR 19, ENA 20, Nextion TX 22 / RX 23. All are 3.3 V only.
+- **C6** pins (ESP32-C6-DevKitC-1): encoder A 10 / B 11 (Z reserved on 7, not read yet), STEP 18, DIR 19, ENA 20 (S2-SVD servo: wired straight to its opto inputs, see `config.rs`), Nextion TX 22 / RX 23. All are 3.3 V only.
 - **S3** pins: NanoEls H5 pinout (encoder 13/14, STEP 35, DIR 42, ENA 41, Nextion TX 43 / RX 44).
 
 The spindle encoder has open-drain outputs, so the ESP32's internal pull-ups

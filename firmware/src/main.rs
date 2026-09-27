@@ -257,6 +257,15 @@ fn encode(segment: &Segment, cfg: &StepGenConfig, (on, off): (Level, Level), out
     }
 }
 
+/// LP IO input register (GPIO0-7 as seen by the LP domain).
+#[cfg(feature = "encoder-log")]
+fn lp_in() -> u32 {
+    #[cfg(feature = "esp32c6")]
+    return unsafe { core::ptr::read_volatile(0x600B_2024 as *const u32) } & 0xff;
+    #[cfg(not(feature = "esp32c6"))]
+    0
+}
+
 /// Spindle position predicted `ahead_us` into the future from recent samples.
 struct SpindlePredictor {
     history: [(u64, i64); config::SPINDLE_VELOCITY_SEGMENTS],
@@ -307,6 +316,36 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
     let mut rpm_start = (Instant::now().as_micros(), 0i64);
     let mut status_countdown = 0u32;
 
+    // Pin levels sampled every segment, with software-counted A/B edges, to
+    // compare against the PCNT count.
+    #[cfg(feature = "encoder-log")]
+    let mut enc_log = (0u64, hw._encoder_a.level(), hw._encoder_b.level(), 0u32, 0u32);
+    #[cfg(feature = "encoder-log")]
+    let (mut gpio_last, mut gpio_toggled) = (0u32, 0u32);
+    // Read the DIR pad back, to catch a pin held away from its driven level.
+    #[cfg(feature = "encoder-log")]
+    hw.dir.set_input_enable(true);
+    // GPIO0-7 are LP pads on the C6: LP_AON_GPIO_MUX selects LP IO over the
+    // HP IO_MUX/GPIO matrix. It survives HP-only resets.
+    #[cfg(all(feature = "encoder-log", feature = "esp32c6"))]
+    unsafe {
+        let r = |a: usize| core::ptr::read_volatile(a as *const u32);
+        println!(
+            "encoder: lp_aon gpio_mux {:08x} gpio_hold0 {:08x} | io_mux gpio2 {:08x} gpio3 {:08x} | lp_io gpio2 {:08x} gpio3 {:08x}",
+            r(0x600B_1028),
+            r(0x600B_102C),
+            r(0x6009_000C),
+            r(0x6009_0010),
+            r(0x600B_2050),
+            r(0x600B_2054)
+        );
+    }
+    #[cfg(feature = "encoder-log")]
+    println!(
+        "encoder: ppr {} filter {} backlash {} invert {}",
+        settings.encoder_ppr, settings.encoder_filter_cycles, settings.encoder_backlash, settings.invert_spindle
+    );
+
     // Double buffer: `playing` is on the wire while `planned` is filled.
     let mut playing = Codes::new();
     let mut planned = Codes::new();
@@ -330,6 +369,15 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
         let s = predictor.predict(now, spindle.avg, 2 * segment_us);
 
         while let Ok(cmd) = COMMANDS.try_receive() {
+            #[cfg(feature = "encoder-log")]
+            println!(
+                "motion: {:?} | pos {} engaged {} stops L {:?} R {:?}",
+                cmd,
+                stepgen.pos(),
+                gearbox.engaged(),
+                gearbox.stop(Side::Left),
+                gearbox.stop(Side::Right)
+            );
             match cmd {
                 Command::SetPitchDu(du) => gearbox.set_pitch_du(du, s),
                 Command::Engage => {
@@ -376,6 +424,30 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
             let elapsed = now - rpm_start.0;
             rpm = (counts * 60_000_000 / (machine.counts_per_rev as u64 * elapsed)) as u32;
             rpm_start = (now, spindle.pos);
+        }
+
+        #[cfg(feature = "encoder-log")]
+        {
+            let (a, b) = (hw._encoder_a.level(), hw._encoder_b.level());
+            enc_log.3 += (a != enc_log.1) as u32;
+            enc_log.4 += (b != enc_log.2) as u32;
+            (enc_log.1, enc_log.2) = (a, b);
+            // Every input pin at once (GPIO_IN_REG), to spot a signal on the wrong pin.
+            #[cfg(feature = "esp32c6")]
+            let gpio_in = unsafe { core::ptr::read_volatile(0x6009_103C as *const u32) };
+            #[cfg(not(feature = "esp32c6"))]
+            let gpio_in = 0u32;
+            gpio_toggled |= gpio_in ^ gpio_last;
+            gpio_last = gpio_in;
+            if now - enc_log.0 >= 500_000 {
+                println!(
+                    "encoder: A {:?} B {:?} sw edges A {} B {} | pcnt raw {} pos {} | rpm {} | gpio in {:08x} toggled {:08x} | lp in {:02x} | z steps {} dir {:?} pad {:?} jog {:?}",
+                    a, b, enc_log.3, enc_log.4, raw, spindle.pos, rpm, gpio_in, gpio_toggled, lp_in(),
+                    stepgen.pos(), hw.dir.output_level(), hw.dir.level(), jog.view(stepgen.pos(), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now)
+                );
+                enc_log = (now, a, b, 0, 0);
+                gpio_toggled = 0;
+            }
         }
 
         if status_countdown == 0 {
