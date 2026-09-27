@@ -70,6 +70,8 @@ pub const GREY: &str = "50712";
 pub const AMBER: &str = "64896";
 pub const DARK_RED: &str = "40960";
 pub const PITCH_NORMAL_BG: &str = "10597";
+/// Buttons while the setup hotspot is up.
+pub const LOCKED_BG: &str = "6371";
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -78,7 +80,8 @@ static BOARD: Mutex<()> = Mutex::new(());
 pub struct Board {
     port: Box<dyn serialport::SerialPort>,
     partial: Vec<u8>,
-    /// `name` → text, and `name.bco` / `name.pco` → colour, as last sent.
+    /// `name` → text, `name.bco` / `name.pco` → colour and `name.tsw` →
+    /// touch enabled (`"0"` / `"1"`), as last sent.
     screen: HashMap<String, String>,
     /// (planned position, pulses counted on the STEP pin), in steps.
     steps: (i64, i64),
@@ -241,8 +244,10 @@ impl Board {
     fn apply(&mut self, line: &str) {
         if let Some(cmd) = line.strip_prefix("nextion tx: ") {
             if let Some((name, rest)) = cmd.split_once(".txt=\"") {
-                let text = rest.strip_suffix('"').unwrap_or(rest).replace("\\xdf", "°");
-                self.screen.insert(name.to_string(), text);
+                let text = rest.strip_suffix('"').unwrap_or(rest);
+                self.screen.insert(name.to_string(), text.to_string());
+            } else if let Some((name, on)) = cmd.strip_prefix("tsw ").and_then(|c| c.split_once(',')) {
+                self.screen.insert(format!("{name}.tsw"), on.to_string());
             } else if let Some((name_attr, value)) = cmd.split_once('=') {
                 self.screen.insert(name_attr.to_string(), value.to_string());
             }

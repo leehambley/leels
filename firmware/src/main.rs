@@ -224,6 +224,13 @@ async fn bench_task() {
 #[cfg(feature = "nextion-log")]
 fn log_nextion(dir: &str, bytes: &[u8]) {
     for chunk in bytes.split(|&b| b == 0xFF).filter(|c| !c.is_empty()) {
+        // Text is UTF-8; anything else (touch events) as hex escapes.
+        if let Ok(s) = core::str::from_utf8(chunk) {
+            if !s.is_empty() && !s.chars().any(char::is_control) {
+                println!("nextion {}: {}", dir, s);
+                continue;
+            }
+        }
         let mut line: heapless::String<256> = heapless::String::new();
         for &b in chunk {
             let _ = if b.is_ascii_graphic() || b == b' ' {
@@ -456,6 +463,9 @@ async fn ui_task(
     }
 
     Timer::after_millis(config::NEXTION_BOOT_MS).await;
+    // The display keeps its state when only the ESP32 restarts (e.g. leaving
+    // setup), so put back the HMI's colours and touch settings first.
+    write_all(&mut tx, nextion::RELOAD_PAGE).await;
     #[cfg(feature = "hil")]
     println!("hil: ready");
     let boot_ms = Instant::now().as_millis();
@@ -470,6 +480,7 @@ async fn ui_task(
     let mut saved_state = ui.operator_state();
     let mut state_changed_at: Option<Instant> = None;
     let mut restart_at: Option<Instant> = None;
+    let mut locked = false;
 
     loop {
         let now_ms = Instant::now().as_millis();
@@ -559,6 +570,21 @@ async fn ui_task(
             }
         }
         shown_colours = Some(colours);
+
+        // Setup mode: lock and darken everything but the Setup button.
+        // Leaving setup restarts, and the page reload at boot undoes this.
+        if ui.setup_active() && !locked {
+            let (bco, pco) = display::LOCKED_COLOURS;
+            for name in display::SETUP_LOCKED {
+                let mut cmd: heapless::Vec<u8, 64> = heapless::Vec::new();
+                if nextion::encode_touch(&mut cmd, name, false).is_ok() && !name.starts_with('t') {
+                    let _ = nextion::encode_num(&mut cmd, name, "bco", bco.into());
+                    let _ = nextion::encode_num(&mut cmd, name, "pco", pco.into());
+                }
+                write_all(&mut tx, &cmd).await;
+            }
+            locked = true;
+        }
     }
 }
 

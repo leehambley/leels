@@ -163,6 +163,12 @@ impl Ui {
     /// `status` is the latest motion snapshot, used to refuse keys that
     /// don't make sense right now.
     pub fn handle(&mut self, key: Key, now_ms: u64, status: &Status) -> Outcome {
+        // The display locks every button but Setup while the hotspot is up
+        // (see display::SETUP_LOCKED); ignore anything that gets through.
+        // Releases still pass, so a jog can never be left running.
+        if self.setup_active && !matches!(key, Key::Setup | Key::Jog { pressed: false, .. } | Key::BackspaceReleased) {
+            return Outcome::default();
+        }
         // Any press dismisses the current message (releases don't, so a jog
         // refusal stays readable after letting go).
         if !matches!(key, Key::Jog { pressed: false, .. } | Key::BackspaceReleased) {
@@ -208,7 +214,6 @@ impl Ui {
             },
             // Don't engage with a half-typed pitch on screen.
             Key::Engage if self.entry.is_some() => self.reject("Press OK first", now_ms),
-            Key::Engage if self.setup_active => self.reject("Leave setup first", now_ms),
             Key::Engage if status.jogging => self.reject("Wait for jog to stop", now_ms),
             Key::Setup if self.setup_active => Outcome::action(Action::ExitSetup),
             Key::Setup if status.engaged || status.jogging => self.reject("Disengage first", now_ms),
@@ -569,7 +574,12 @@ mod tests {
         assert!(!ui.setup_active());
         assert_eq!(ui.handle(Key::Setup, 0, &IDLE).action, Some(Action::StartSetup));
         assert!(ui.setup_active());
-        assert!(ui.handle(Key::Engage, 0, &IDLE).beep);
+        // Locked: everything but Setup is ignored, releases still pass.
+        for key in [Key::Engage, Key::Digit(1), Key::PitchPreset(500), Key::Jog { left: true, pressed: true }] {
+            assert_eq!(ui.handle(key, 0, &IDLE), Outcome::default(), "{key:?}");
+        }
+        assert_eq!(ui.pitch.magnitude_milli, 0);
+        assert_eq!(ui.handle(Key::Jog { left: true, pressed: false }, 0, &IDLE).command, Some(Command::JogRelease));
         assert_eq!(ui.handle(Key::Setup, 0, &IDLE).action, Some(Action::ExitSetup));
     }
 

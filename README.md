@@ -88,7 +88,7 @@ See [docs/nextion.md](docs/nextion.md) for what each one does.
 - **Engage / Disengage** is one button: it closes the virtual half-nut at the
   current position, or opens it, stopping the lead screw immediately.
 - **Stops**: pressing Stop L or Stop R sets that stop at the current position.
-  The button turns amber and shows the stop's Z; it turns red with `AT STOP`
+  The button turns amber and shows the distance still to go to the stop; it turns red with `AT STOP`
   while the carriage rests on it. Pressing it again clears it, but only while
   disengaged or resting on the stop. Stops limit threading and jogging. The
   carriage parks on a stop while the spindle keeps turning. Reverse the

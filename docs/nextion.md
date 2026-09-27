@@ -46,24 +46,43 @@ press event.
 presets, REVERSE and mm/inch beep and show `Disengage to change pitch`.
 
 **Keypad entry:** while a number is typed but not yet applied, `tPitch` shows
-it with a blinking cursor (`PITCH 1.25_`) on an amber background, and the
+it with a blinking cursor (`↻1.25_`) on an amber background, and the
 message line shows `OK to apply, <- delete, hold <- clear`. Any other button
 drops the entry and shows `Entry cancelled`; a pitch preset simply replaces it.
+
+**Setup mode:** while the hotspot is up, every touchable component except
+`bSettings` has its touch events turned off (`tsw name,0`) and is drawn
+near-black with dim grey text. Leaving setup restarts the firmware, which
+sends `page 0` at boot to put back the HMI's own colours and touch settings.
+
+## Text and fonts
+
+Text is sent as UTF-8, the encoding of both fonts in the HMI. A font only
+shows the glyphs it was generated with:
+
+- **Font 0** (PragmataPro 30 px, all characters): everything except the two
+  big readouts. Needs `°` for `tAngle`.
+- **Font 1** (PragmataPro Bold 56 px, `tPitch` and `tZPos`): generated with
+  ASCII only, so it must be regenerated to include `↻` (U+21BB) and `⇄`
+  (U+21C4), the symbols at the start of the two readouts
+  (`els-core/src/display.rs`, `PITCH_SYMBOL` / `Z_SYMBOL`). About 8
+  characters fit at 56 px and the readouts need up to 9 (`⇄-999.995`,
+  `↻-5.000mm`), so generate it at about 48 px.
 
 ## Text written by the firmware
 
 | objname | content |
 |---------|---------|
 | bToggleEngaged | `Engage`, `Disengage` (engaged), `Syncing` (waiting for thread phase) or `Setup on` |
-| tPitch | `PITCH -1.250mm`; while typing `PITCH 1.25_` (blinking cursor, amber) |
+| tPitch | `↻-1.250mm`; while typing `↻1.25_` (blinking cursor, amber) |
 | bReverseToggle | `NORMAL` (grey) / `REVERSE` (amber) |
 | tMessageLine | (max 40 chars) the typed number (`Pitch 1.25`), warnings, `Set pitch`, `Waiting for thread phase`, and the hotspot name and password in setup mode |
 | bUnitsToggle | `UNIT: MM` / `UNIT: IN` (max 10 chars) |
 | tRPM | `RPM 1200` |
 | tTurns | `TURNS 12.34`, spindle turns since engage (or last zero) |
-| tAngle | `ANGLE 123.45°`, degree sign sent as byte 0xDF |
-| tZPos | `Z POS 1.123mm` (mm 3 dp / inch 4 dp) |
-| bLeftStop | `\|< Set stop`, `\|< 12.345mm` (the stop's Z position), or `\|< AT STOP`; max 15 chars |
+| tAngle | `ANGLE 123.45°` |
+| tZPos | `⇄1.123` (mm 3 dp / inch 4 dp; no unit, see tPitch or UNIT) |
+| bLeftStop | `\|< Set stop`, `\|< 12.345mm` (distance from the carriage to the stop), or `\|< AT STOP`; max 15 chars |
 | bRightStop | `Set stop >\|`, `12.345mm >\|`, or `AT STOP >\|` |
 | bCycleJogDist | idle: `JOG DIST 0.1mm`; tap move: `JOG 0.300mm` (distance still to go); hold: `HOLD SPEED 2/4`; braking: `STOPPING` |
 

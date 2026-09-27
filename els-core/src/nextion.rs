@@ -130,19 +130,16 @@ pub fn key_for(touch: Touch) -> Option<Key> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct BufferFull;
 
-/// Append `id.txt="text"` + terminator. `°` is sent as Nextion's 0xDF glyph;
-/// other non-ASCII characters and quotes become `?`.
+/// Append `id.txt="text"` + terminator. Text goes as UTF-8, the encoding of
+/// both fonts in the HMI (a font only shows the characters it was generated
+/// with). Quotes, backslashes and control characters become `?`.
 pub fn encode_text<const N: usize>(out: &mut heapless::Vec<u8, N>, id: &str, text: &str) -> Result<(), BufferFull> {
     out.extend_from_slice(id.as_bytes()).map_err(|_| BufferFull)?;
     out.extend_from_slice(b".txt=\"").map_err(|_| BufferFull)?;
     for c in text.chars() {
-        let b = match c {
-            '°' => 0xDF,
-            '"' | '\\' => b'?',
-            c if c.is_ascii() && !c.is_ascii_control() => c as u8,
-            _ => b'?',
-        };
-        out.push(b).map_err(|_| BufferFull)?;
+        let c = if matches!(c, '"' | '\\') || c.is_control() { '?' } else { c };
+        let mut utf8 = [0u8; 4];
+        out.extend_from_slice(c.encode_utf8(&mut utf8).as_bytes()).map_err(|_| BufferFull)?;
     }
     out.push(b'"').map_err(|_| BufferFull)?;
     out.extend_from_slice(&TERM).map_err(|_| BufferFull)
@@ -166,6 +163,17 @@ pub fn encode_num<const N: usize>(
 
 /// Short beep through the display's speaker.
 pub const BEEP: &[u8] = b"play 0,0,0\xFF\xFF\xFF";
+
+/// Reload page 0: every component back to its HMI colours, touch enabled.
+pub const RELOAD_PAGE: &[u8] = b"page 0\xFF\xFF\xFF";
+
+/// Append `tsw id,0|1` + terminator: turn a component's touch events off or on.
+pub fn encode_touch<const N: usize>(out: &mut heapless::Vec<u8, N>, id: &str, enabled: bool) -> Result<(), BufferFull> {
+    for part in [b"tsw ".as_slice(), id.as_bytes(), if enabled { b",1" } else { b",0" }, &TERM] {
+        out.extend_from_slice(part).map_err(|_| BufferFull)?;
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -238,6 +246,12 @@ mod tests {
     fn encodes_text() {
         let mut v: heapless::Vec<u8, 64> = heapless::Vec::new();
         encode_text(&mut v, "tAngle", "12.5°").unwrap();
-        assert_eq!(&v[..], b"tAngle.txt=\"12.5\xDF\"\xFF\xFF\xFF");
+        assert_eq!(&v[..], "tAngle.txt=\"12.5°\"".as_bytes().iter().chain(&TERM).copied().collect::<Vec<_>>());
+        v.clear();
+        encode_text(&mut v, "t", "a\"b\n").unwrap();
+        assert_eq!(&v[..], b"t.txt=\"a?b?\"\xFF\xFF\xFF");
+        v.clear();
+        encode_touch(&mut v, "bJogL", false).unwrap();
+        assert_eq!(&v[..], b"tsw bJogL,0\xFF\xFF\xFF");
     }
 }

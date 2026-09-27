@@ -71,11 +71,61 @@ pub const PITCH_COLOURS: [(u16, u16); 2] = [(0x2965, 0xFFFF), (0xFD80, 0x0000)];
 /// `bReverseToggle`: normal direction (grey), reversed (amber).
 pub const REVERSE_COLOURS: [(u16, u16); 2] = [(0xC618, 0x0000), (0xFD80, 0x0000)];
 
+/// Buttons while the setup hotspot is up: near-black with dim grey text, so
+/// they read as switched off (they're also locked, see [`SETUP_LOCKED`]).
+/// Deliberately low contrast (3.3:1); only the setup banner matters then.
+pub const LOCKED_COLOURS: (u16, u16) = (0x18E3, 0x6B4D);
+
+/// Every touchable component on page 0 except `bSettings`: touch events
+/// off and [`LOCKED_COLOURS`] while in setup. Leaving setup restarts the
+/// firmware, which reloads the page and so restores the HMI's own colours.
+pub const SETUP_LOCKED: [&str; 30] = [
+    "bToggleEngaged",
+    "bReverseToggle",
+    "bUnitsToggle",
+    "bPitch001",
+    "bPitch005",
+    "bPitch01",
+    "bPitch05",
+    "bPitch1",
+    "bPitch5",
+    "bNum0",
+    "bNum1",
+    "bNum2",
+    "bNum3",
+    "bNum4",
+    "bNum5",
+    "bNum6",
+    "bNum7",
+    "bNum8",
+    "bNum9",
+    "bNumPeriod",
+    "bBackspace",
+    "bNumOK",
+    "bLeftStop",
+    "bRightStop",
+    "bZeroZ",
+    "bJogL",
+    "bJogR",
+    "bCycleJogDist",
+    "tAngle",
+    "tTurns",
+];
+
+/// Leading symbols on `tPitch` and `tZPos`. Those use font 1 in the HMI, so
+/// it must include these glyphs (see docs/nextion.md). Font 1 fits about 8
+/// characters at 56 px, so there's no room for words.
+pub const PITCH_SYMBOL: &str = "↻";
+pub const Z_SYMBOL: &str = "⇄";
+
 /// Components whose `(bco, pco)` the firmware sets, in [`field_colours`] order.
 pub const COLOUR_FIELDS: [&str; 4] = ["bLeftStop", "bRightStop", "tPitch", "bReverseToggle"];
 
 /// `(bco, pco)` of each of [`COLOUR_FIELDS`].
 pub fn field_colours(ui: &Ui, st: &Status) -> [(u16, u16); COLOUR_FIELDS.len()] {
+    if ui.setup_active() {
+        return [LOCKED_COLOURS, LOCKED_COLOURS, PITCH_COLOURS[0], LOCKED_COLOURS];
+    }
     [
         STOP_COLOURS[st.stop_state(Side::Left) as usize],
         STOP_COLOURS[st.stop_state(Side::Right) as usize],
@@ -127,9 +177,9 @@ pub fn render(ui: &Ui, st: &Status, m: &Machine, now_ms: u64, setup_banner: &str
     let pitch = match ui.entry() {
         Some(e) => {
             let cursor = if (now_ms / CURSOR_BLINK_MS).is_multiple_of(2) { "_" } else { "" };
-            labelled("PITCH ", e, cursor)
+            labelled(PITCH_SYMBOL, e, cursor)
         }
-        None => labelled("PITCH ", &fixed(ui.pitch.signed_milli(), 3), unit.suffix()),
+        None => labelled(PITCH_SYMBOL, &fixed(ui.pitch.signed_milli(), 3), unit.suffix()),
     };
 
     let message = if let Some(msg) = ui.message(now_ms) {
@@ -156,7 +206,8 @@ pub fn render(ui: &Ui, st: &Status, m: &Machine, now_ms: u64, setup_banner: &str
         rpm,
         labelled("TURNS ", &turns, ""),
         labelled("ANGLE ", &angle, ""),
-        labelled("Z POS ", &distance(m, unit, st.pos - st.z_zero), unit.suffix()),
+        // No unit: it's on the pitch and the UNIT button, and there's no room.
+        labelled(Z_SYMBOL, &distance(m, unit, st.pos - st.z_zero), ""),
         stop_caption(st, m, unit, Side::Left),
         stop_caption(st, m, unit, Side::Right),
         jog_caption(ui, st, m, unit),
@@ -198,7 +249,11 @@ fn stop_caption(st: &Status, m: &Machine, unit: Unit, side: Side) -> Text {
     };
     let body = match (st.stop_state(side), stop) {
         (StopState::Parked, _) => text("AT STOP"),
-        (StopState::Set, Some(s)) => labelled("", &distance(m, unit, s - st.z_zero), unit.suffix()),
+        // Distance still to go to the stop (the left stop is towards +Z).
+        (StopState::Set, Some(s)) => {
+            let to_go = if left { s - st.pos } else { st.pos - s };
+            labelled("", &distance(m, unit, to_go), unit.suffix())
+        }
         _ => text("Set stop"),
     };
     if left {
@@ -303,13 +358,13 @@ mod tests {
             f,
             [
                 "Disengage",
-                "PITCH -1.000mm",
+                "↻-1.000mm",
                 "UNIT: MM",
                 "RPM 300",
                 "TURNS 1.50",
                 "ANGLE 180.00°",
-                "Z POS 1.000mm",
-                "|< 2.000mm",
+                "⇄1.000",
+                "|< 1.000mm",
                 "Set stop >|",
                 "JOG DIST 0.1mm",
                 "",
@@ -326,7 +381,7 @@ mod tests {
         assert_eq!(st.stop_state(Side::Right), StopState::Set);
         let f = render(&ui, &st, &M, 0, "");
         assert_eq!(f[7], "|< AT STOP");
-        assert_eq!(f[8], "-5000.250mm >|");
+        assert_eq!(f[8], "5001.250mm >|");
         assert!(f[8].chars().count() <= 15);
         assert_eq!(field_colours(&ui, &st)[..2], [STOP_COLOURS[2], STOP_COLOURS[1]]);
         assert_eq!(field_colours(&ui, &IDLE)[..2], [STOP_COLOURS[0]; 2]);
@@ -361,6 +416,31 @@ mod tests {
     }
 
     #[test]
+    fn big_readouts_fit_font_1() {
+        let mut ui = Ui::new(254_000);
+        ui.handle(Key::Reverse, 0, &IDLE);
+        ui.handle(Key::PitchPreset(5_000), 0, &IDLE);
+        let st = Status { pos: -199_999, ..IDLE }; // -999.995mm
+        let f = render(&ui, &st, &M, 0, "");
+        assert_eq!(f[1], "↻-5.000mm");
+        assert_eq!(f[6], "⇄-999.995");
+        for i in [1, 6] {
+            assert!(f[i].chars().count() <= 9, "{}", f[i]);
+        }
+    }
+
+    #[test]
+    fn setup_locks_button_colours() {
+        let mut ui = Ui::new(254_000);
+        ui.handle(Key::Reverse, 0, &IDLE);
+        ui.handle(Key::Setup, 0, &IDLE);
+        let st = Status { left_stop: Some(0), ..IDLE };
+        assert_eq!(field_colours(&ui, &st), [LOCKED_COLOURS, LOCKED_COLOURS, PITCH_COLOURS[0], LOCKED_COLOURS]);
+        assert!(!SETUP_LOCKED.contains(&"bSettings"));
+        assert!(contrast(LOCKED_COLOURS.0, LOCKED_COLOURS.1) >= 3.0);
+    }
+
+    #[test]
     fn jog_caption_follows_jog_state() {
         let ui = Ui::new(254_000);
         let cap = |jog| render(&ui, &Status { jog, ..IDLE }, &M, 0, "")[9].clone();
@@ -381,10 +461,10 @@ mod tests {
         let st = Status { pos: 254, ..IDLE }; // 254 steps = 1.27mm = 0.05"
         let f = render(&ui, &st, &M, 0, "");
         assert_eq!(f[2], "UNIT: IN");
-        assert_eq!(f[6], "Z POS 0.0500in");
+        assert_eq!(f[6], "⇄0.0500");
         assert_eq!(f[9], "JOG DIST 0.1in");
-        assert_eq!(f[1], "PITCH 4_");
-        assert_eq!(render(&ui, &st, &M, CURSOR_BLINK_MS, "")[1], "PITCH 4");
+        assert_eq!(f[1], "↻4_");
+        assert_eq!(render(&ui, &st, &M, CURSOR_BLINK_MS, "")[1], "↻4");
         assert_eq!(f[10], "OK to apply, <- delete, hold <- clear");
         assert_eq!(field_colours(&ui, &st)[2], PITCH_COLOURS[1]);
         assert!(f[10].chars().count() <= 40);
