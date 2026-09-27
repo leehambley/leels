@@ -46,10 +46,12 @@ default = ["esp32c6"]
 setup-on-boot = []
 # Bench debugging without a display: hotspot at power-up, Nextion UART
 # traffic logged, and a repeating jog sequence on STEP/DIR for a scope.
-bench = ["setup-on-boot"]
+bench = ["setup-on-boot", "nextion-log"]
 # Hardware-in-the-loop tests (hil/): touch input over USB, display commands
 # and STEP pulse counts in the log, defaults instead of saved settings.
-hil = []
+hil = ["nextion-log"]
+# Log every byte to and from the display, and each decoded key.
+nextion-log = []
 esp32s3 = [
     "esp-hal/esp32s3",
     "esp-rtos/esp32s3",

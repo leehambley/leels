@@ -221,7 +221,7 @@ async fn bench_task() {
 }
 
 /// Log Nextion traffic, one command per line (0xFF terminators dropped).
-#[cfg(any(feature = "bench", feature = "hil"))]
+#[cfg(feature = "nextion-log")]
 fn log_nextion(dir: &str, bytes: &[u8]) {
     for chunk in bytes.split(|&b| b == 0xFF).filter(|c| !c.is_empty()) {
         let mut line: heapless::String<256> = heapless::String::new();
@@ -425,7 +425,7 @@ async fn touch_task() {
     let mut buf = [0u8; 32];
     loop {
         let n = NEXTION_RX.read(&mut buf).await;
-        #[cfg(any(feature = "bench", feature = "hil"))]
+        #[cfg(feature = "nextion-log")]
         log_nextion("rx", &buf[..n]);
         for &b in &buf[..n] {
             if let Some(key) = parser.push(b).and_then(nextion::key_for) {
@@ -480,7 +480,7 @@ async fn ui_task(
         let idle = !status.engaged && !status.jogging;
         match event {
             Either3::First(key) => {
-                #[cfg(any(feature = "bench", feature = "hil"))]
+                #[cfg(feature = "nextion-log")]
                 println!("key: {:?}", key);
                 let out = ui.handle(key, now_ms, &status);
                 if let Some(cmd) = out.command {
@@ -563,7 +563,7 @@ async fn ui_task(
 }
 
 async fn write_all(tx: &mut UartTx<'static, Async>, mut bytes: &[u8]) {
-    #[cfg(any(feature = "bench", feature = "hil"))]
+    #[cfg(feature = "nextion-log")]
     log_nextion("tx", bytes);
     while !bytes.is_empty() {
         match tx.write_async(bytes).await {
