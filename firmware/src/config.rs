@@ -74,14 +74,16 @@ pub const DEFAULTS: Settings = Settings {
     encoder_backlash: 3,
     encoder_filter_cycles: 40,
     invert_spindle: false,
-    // Lead screw pitch in deci-microns (40000 = 4mm, e.g. SFU1204); motor
-    // steps per screw turn (full steps * microsteps * gear ratio).
-    screw_du: 40_000,
-    motor_steps: 800,
-    // steps/s, steps/s, steps/s².
-    speed_start: 800,
-    speed_max: 30_000,
-    acceleration: 20_000,
+    // Lead screw pitch in deci-microns (20000 = 2mm, measured); motor steps
+    // per screw turn (pulses per motor turn * gear ratio). The S2-SVD servo
+    // takes 10000 pulses per turn with its default 1:1 electronic gear.
+    screw_du: 20_000,
+    motor_steps: 10_000,
+    // steps/s, steps/s, steps/s². 100k steps/s = 600 rpm = 20 mm/s, under
+    // the ~124k limit of 32 steps per 250 µs segment.
+    speed_start: 2_000,
+    speed_max: 100_000,
+    acceleration: 200_000,
     // Largest pitch accepted, deci-microns (254000 = 1").
     max_pitch_du: 254_000,
     // Driver signals. STEP idles high and pulses low on the NanoEls H5.
