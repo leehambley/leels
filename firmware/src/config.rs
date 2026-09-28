@@ -28,6 +28,11 @@ pub struct Pins {
 /// shifter: CN2 PP+ (3) and PD+ (4) to 3V3, PP- (14) to STEP, PD- (5) to DIR,
 /// GND (1) to GND. ENA is unused (the drive's enable is a 12-24 V input): set
 /// Pn003 = 1 so the drive enables itself at power-up.
+///
+/// Drive tuning on this machine: Fn018 inertia ratio ~1.5 (hands off the
+/// carriage) in Pn257, automatic gains (Pn258), rigidity Pn259 = 8 (9 and up
+/// hums), online inertia estimation off (Pn260 = 0), command smoothing off
+/// (Pn109 = 0). Save with Fn001 and power-cycle.
 #[cfg(feature = "esp32c6")]
 macro_rules! take_pins {
     ($p:ident) => {
