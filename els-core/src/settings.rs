@@ -368,7 +368,7 @@ pub const FIELDS: &[Field] = &[
         "Driver signals",
         "Invert DIR",
         "",
-        "Tick if the carriage moves opposite to the pitch sign.",
+        "Tick if JOG moves the carriage the wrong way. (Threading the wrong way with jogging right: invert the spindle instead.)",
         Flag,
         0,
         1,
