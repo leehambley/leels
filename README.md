@@ -117,10 +117,19 @@ See [docs/nextion.md](docs/nextion.md) for what each one does.
   browse to `http://192.168.4.1/`. The page covers:
   - the encoder (lines, backlash, glitch filter, direction);
   - the lead screw and motor (pitch, steps, start/max speed, acceleration,
-    largest pitch);
+    backlash, largest pitch);
   - driver signals (DIR/ENABLE inversion, STEP polarity, pulse width, DIR
     setup time);
   - jog speeds and timings.
+
+  **Backlash** is taken up on every reversal: the motor turns that much
+  further, so the Z readout, stops and thread phase stay true. *Measure it*
+  opens a wizard for a dial indicator on the carriage: it moves the carriage
+  1 mm left, you zero the indicator, it moves 0.5 mm right, and you enter the
+  reading. Each further round runs with the value so far switched on and
+  refines it, until a round reads 0.5 mm within 0.005 mm. The carriage moves
+  from the phone, so keep hands clear. At power-up the controller assumes the
+  slack was last taken up moving left.
 
   **Save** checks the values, writes them to flash and restarts with WiFi off.
   Pressing Setup again leaves without saving. Pins stay fixed in the firmware.

@@ -11,6 +11,7 @@
 //! - `steps`: stepper motor steps (including microsteps).
 #![cfg_attr(not(test), no_std)]
 
+pub mod backlash;
 pub mod display;
 pub mod dns;
 pub mod gearbox;

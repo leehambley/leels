@@ -185,6 +185,126 @@ fn render_field(out: &mut impl Write, f: &Field, s: &Settings) -> fmt::Result {
     Ok(())
 }
 
+/// Value of `key` in a urlencoded form body, decoded into `buf`.
+pub fn form_field<'b>(body: &str, key: &str, buf: &'b mut [u8]) -> Option<&'b str> {
+    let raw = body.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        (k == key).then_some(v)
+    })?;
+    url_decode(raw, buf).map(str::trim)
+}
+
+/// A form field holding mm with up to 4 decimals, as du.
+pub fn form_mm(body: &str, key: &str) -> Option<i64> {
+    let mut buf = [0u8; 24];
+    parse_decimal4(form_field(body, key, &mut buf)?)
+}
+
+// ---------------------------------------------------------------------------
+// Backlash wizard
+//
+// With a dial indicator on the carriage: move towards +Z (left) to push the
+// nut against one side of the screw, zero the indicator, then reverse by
+// PROBE. The carriage should move PROBE; whatever is missing is slack the
+// compensation in use doesn't cover yet. Each round runs with the estimate
+// so far switched on, so a second round checks (and refines) the first.
+// ---------------------------------------------------------------------------
+
+/// Move towards +Z (left) before each measurement, to take up the slack.
+pub const WIZARD_TAKEUP_DU: i64 = 10_000;
+/// Reversal the indicator measures, towards -Z (right).
+pub const WIZARD_PROBE_DU: i64 = 5_000;
+/// Largest backlash accepted (the setting's limit), du.
+pub const MAX_BACKLASH_DU: i64 = 20_000;
+/// A round within this of the expected travel means the value is right.
+pub const WIZARD_GOOD_DU: i64 = 50;
+
+/// Backlash estimate after a round measured with `compensation_du` on: the
+/// indicator read `reading_du` of an expected [`WIZARD_PROBE_DU`].
+pub fn refine_backlash(compensation_du: i64, reading_du: i64) -> i64 {
+    (compensation_du + WIZARD_PROBE_DU - reading_du).clamp(0, MAX_BACKLASH_DU)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WizardStep {
+    /// What's needed; `saved_du` is the backlash setting in use.
+    Intro { saved_du: i64 },
+    /// Carriage moved left with `compensation_du` on: zero the indicator.
+    Zero { compensation_du: i64 },
+    /// Carriage reversed: enter the indicator reading.
+    Read { compensation_du: i64 },
+    /// Measured with `compensation_du` on; the new estimate is `backlash_du`.
+    Result { compensation_du: i64, reading_du: i64, backlash_du: i64 },
+}
+
+pub fn render_backlash(out: &mut impl Write, step: WizardStep, notice: Option<&str>) -> fmt::Result {
+    out.write_str(PAGE_HEAD)?;
+    out.write_str("<h2>Measure backlash</h2>")?;
+    if let Some(n) = notice {
+        write!(out, "<p class=notice>{}</p>", Escape(n))?;
+    }
+    let takeup = Decimal4(WIZARD_TAKEUP_DU);
+    let probe = Decimal4(WIZARD_PROBE_DU);
+    let button = |out: &mut dyn Write, action: &str, b: i64, label: fmt::Arguments| {
+        write!(
+            out,
+            "<form method=post action=/backlash/{action}><input type=hidden name=b value={}><button>{label}</button></form>",
+            Decimal4(b)
+        )
+    };
+    match step {
+        WizardStep::Intro { saved_du } => {
+            write!(
+                out,
+                "<ol><li>Fix a dial indicator to the bed so it reads the carriage moving along the bed.</li>\
+                 <li>Keep hands clear: the carriage moves {takeup} mm left, then {probe} mm right, \
+                 like the JOG buttons.</li></ol>\
+                 <p class=help>Compensation is off for the first round. The saved value is {} mm. \
+                 Nothing is saved until the last step.</p>",
+                Decimal4(saved_du)
+            )?;
+            button(out, "takeup", 0, format_args!("Start: move {takeup} mm left"))?;
+        }
+        WizardStep::Zero { compensation_du } => {
+            write!(out, "<p>The slack is taken up. <b>Zero the indicator</b>, then reverse.</p>")?;
+            button(out, "probe", compensation_du, format_args!("Move {probe} mm right"))?;
+        }
+        WizardStep::Read { compensation_du } => {
+            write!(
+                out,
+                "<form method=post action=/backlash/result><input type=hidden name=b value={}>\
+                 <label>How far did the indicator move? <small>mm</small>\
+                 <input name=reading inputmode=decimal pattern=\"[0-9]*\\.?[0-9]{{0,4}}\" required autofocus></label>\
+                 <p class=help>The carriage was told to move {probe} mm.</p><button>Calculate</button></form>",
+                Decimal4(compensation_du)
+            )?;
+        }
+        WizardStep::Result { compensation_du, reading_du, backlash_du } => {
+            let short = WIZARD_PROBE_DU - reading_du;
+            write!(
+                out,
+                "<p>Moved {} of {probe} mm with {} mm compensation.</p><p><b>Backlash: {} mm</b></p>",
+                Decimal4(reading_du),
+                Decimal4(compensation_du),
+                Decimal4(backlash_du)
+            )?;
+            if compensation_du > 0 && short.abs() <= WIZARD_GOOD_DU {
+                write!(
+                    out,
+                    "<p class=help>Within {} mm of the target: this value is right.</p>",
+                    Decimal4(WIZARD_GOOD_DU)
+                )?;
+            } else {
+                out.write_str("<p class=help>Check it: another round runs with this value switched on.</p>")?;
+            }
+            button(out, "takeup", backlash_du, format_args!("Check with {} mm", Decimal4(backlash_du)))?;
+            out.write_str("<p></p>")?;
+            button(out, "save", backlash_du, format_args!("Save {} mm and restart", Decimal4(backlash_du)))?;
+        }
+    }
+    out.write_str("<p><a href=/>Back to settings</a> (nothing saved)</p></body></html>")
+}
+
 /// Page shown after a successful save.
 pub const SAVED_PAGE: &str = concat!(
     "<!doctype html><html><head><meta charset=utf-8>",
@@ -294,6 +414,45 @@ mod tests {
         assert!(matches!(apply_form(&body, &DEFAULTS, TIMING), Err(FormError::Field(_))));
         let body = form_body(&DEFAULTS).replace("speed_start=800", "speed_start=31000");
         assert!(matches!(apply_form(&body, &DEFAULTS, TIMING), Err(FormError::Invalid(_))));
+    }
+
+    #[test]
+    fn backlash_wizard_refines_and_renders() {
+        // First round, no compensation: 0.35 of 0.5 mm means 0.15 mm slack.
+        assert_eq!(refine_backlash(0, 3_500), 1_500);
+        // Check round with 0.15 on reads 0.49: 0.01 mm still missing.
+        assert_eq!(refine_backlash(1_500, 4_900), 1_600);
+        // Overshoot lowers it; never below 0 or above the limit.
+        assert_eq!(refine_backlash(1_600, 5_100), 1_500);
+        assert_eq!(refine_backlash(0, 9_000), 0);
+        assert_eq!(refine_backlash(0, 0), 5_000);
+        assert_eq!(refine_backlash(19_000, 0), MAX_BACKLASH_DU);
+
+        let page = |step| {
+            let mut p = String::new();
+            render_backlash(&mut p, step, None).unwrap();
+            p
+        };
+        assert!(page(WizardStep::Intro { saved_du: 700 }).contains("The saved value is 0.0700 mm"));
+        assert!(page(WizardStep::Zero { compensation_du: 1_500 })
+            .contains("action=/backlash/probe><input type=hidden name=b value=0.1500>"));
+        assert!(page(WizardStep::Read { compensation_du: 0 }).contains("name=reading"));
+        let done = page(WizardStep::Result { compensation_du: 1_500, reading_du: 4_990, backlash_du: 1_510 });
+        assert!(done.contains("<b>Backlash: 0.1510 mm</b>"));
+        assert!(done.contains("this value is right"));
+        assert!(done.contains("action=/backlash/save><input type=hidden name=b value=0.1510>"));
+        assert!(
+            !page(WizardStep::Result { compensation_du: 0, reading_du: 4_990, backlash_du: 10 }).contains("is right")
+        );
+    }
+
+    #[test]
+    fn form_fields() {
+        assert_eq!(form_mm("b=0.1500&reading=0.49", "b"), Some(1_500));
+        assert_eq!(form_mm("b=0.1500&reading=0.49", "reading"), Some(4_900));
+        assert_eq!(form_mm("reading=%2E5", "reading"), Some(5_000));
+        assert_eq!(form_mm("b=x", "b"), None);
+        assert_eq!(form_mm("", "b"), None);
     }
 
     #[test]

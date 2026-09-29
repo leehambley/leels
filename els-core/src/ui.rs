@@ -68,6 +68,8 @@ pub enum Command {
         level: u8,
     },
     JogRelease,
+    /// Backlash compensation in steps, from the setup page's wizard.
+    SetBacklashSteps(i64),
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

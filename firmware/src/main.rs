@@ -32,6 +32,7 @@ mod storage;
 
 use core::cell::Cell;
 
+use els_core::backlash::Backlash;
 use els_core::display::{self, Status, Text, COLOUR_FIELDS, FIELDS};
 use els_core::gearbox::{Gearbox, Side};
 use els_core::jog::{Bounds, Jog, JogView};
@@ -330,6 +331,8 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
     let mut predictor = SpindlePredictor { history: [(0, 0); config::SPINDLE_VELOCITY_SEGMENTS], next: 0 };
     let mut gearbox = Gearbox::new(machine);
     let mut stepgen = StepGen::new(stepgen_cfg);
+    // Everything but the step generator works in carriage positions.
+    let mut backlash = Backlash::new(settings.backlash_steps());
     let mut jog = Jog::new(settings.jog());
     let mut z_zero = 0i64;
     let mut turn_zero = 0i64;
@@ -401,7 +404,7 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
             println!(
                 "motion: {:?} | pos {} engaged {} stops L {:?} R {:?}",
                 cmd,
-                stepgen.pos(),
+                backlash.carriage(stepgen.pos()),
                 gearbox.engaged(),
                 gearbox.stop(Side::Left),
                 gearbox.stop(Side::Right)
@@ -410,27 +413,35 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
                 Command::SetPitchDu(du) => gearbox.set_pitch_du(du, s),
                 Command::Engage => {
                     jog.cancel();
-                    gearbox.engage(s, stepgen.pos());
+                    gearbox.engage(s, backlash.carriage(stepgen.pos()));
                     turn_zero = spindle.pos;
                 }
                 Command::Disengage => {
                     jog.cancel();
-                    gearbox.disengage(stepgen.pos());
+                    gearbox.disengage(backlash.carriage(stepgen.pos()));
                 }
                 Command::Jog { left, distance_du, level } if !gearbox.engaged() => {
                     let dir = if left { 1 } else { -1 };
                     let distance = machine.du_to_steps(distance_du);
-                    jog.press(dir, distance, level.into(), stepgen.pos(), stepgen.braking_steps(), now);
+                    jog.press(
+                        dir,
+                        distance,
+                        level.into(),
+                        backlash.carriage(stepgen.pos()),
+                        stepgen.braking_steps(),
+                        now,
+                    );
                 }
                 Command::Jog { .. } => {}
-                Command::JogRelease => jog.release(stepgen.pos(), stepgen.braking_steps(), now),
-                Command::ToggleStop(side) => gearbox.toggle_stop(side, s, stepgen.pos()),
+                Command::JogRelease => jog.release(backlash.carriage(stepgen.pos()), stepgen.braking_steps(), now),
+                Command::ToggleStop(side) => gearbox.toggle_stop(side, s, backlash.carriage(stepgen.pos())),
                 Command::ZeroZ => {
                     // The UI refuses this while engaged with stops set.
-                    z_zero = stepgen.pos();
+                    z_zero = backlash.carriage(stepgen.pos());
                     gearbox.clear_stops();
                 }
                 Command::ZeroTurns => turn_zero = spindle.pos,
+                Command::SetBacklashSteps(steps) => backlash.set_steps(steps),
             }
         }
 
@@ -439,14 +450,14 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
             gearbox.update(s)
         } else {
             let bounds = Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left));
-            let (target, cap) = jog.update(stepgen.pos(), bounds, now);
+            let (target, cap) = jog.update(backlash.carriage(stepgen.pos()), bounds, now);
             stepgen.set_speed_cap(cap);
             target
         };
-        let segment = stepgen.next_segment(target);
+        let segment = stepgen.next_segment(backlash.motor_target(target));
         #[cfg(feature = "encoder-log")]
         if gearbox.engaged() && !target.is_final {
-            let lag = target.pos - stepgen.pos();
+            let lag = target.pos - backlash.carriage(stepgen.pos());
             if lag.abs() > max_lag.abs() {
                 max_lag = lag;
             }
@@ -483,7 +494,7 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
                 println!(
                     "encoder: A {:?} B {:?} sw edges A {} B {} | pcnt raw {} pos {} | rpm {} | gpio in {:08x} toggled {:08x} | lp in {:02x} | z steps {} dir {:?} pad {:?} jog {:?} | engaged {} syncing {} max lag {} | max loop {} us, last print {} us",
                     a, b, enc_log.3, enc_log.4, raw, spindle.pos, rpm, gpio_in, gpio_toggled, lp_in(),
-                    stepgen.pos(), hw.dir.output_level(), hw.dir.level(), jog.view(stepgen.pos(), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now),
+                    stepgen.pos(), hw.dir.output_level(), hw.dir.level(), jog.view(backlash.carriage(stepgen.pos()), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now),
                     gearbox.engaged(), gearbox.syncing(), max_lag, max_dt, print_us
                 );
                 print_us = Instant::now().as_micros() - t0;
@@ -500,8 +511,12 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
                 engaged: gearbox.engaged(),
                 syncing: gearbox.syncing(),
                 jogging: jog.active(),
-                jog: jog.view(stepgen.pos(), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now),
-                pos: stepgen.pos(),
+                jog: jog.view(
+                    backlash.carriage(stepgen.pos()),
+                    Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)),
+                    now,
+                ),
+                pos: backlash.carriage(stepgen.pos()),
                 z_zero,
                 left_stop: gearbox.stop(Side::Left),
                 right_stop: gearbox.stop(Side::Right),

@@ -7,6 +7,10 @@
 //! - the settings page on port 80. Any other path redirects to it, which is
 //!   what phones look for to pop up the portal.
 //!
+//! `/backlash` is a wizard that measures lead screw backlash with a dial
+//! indicator: it moves the carriage (like the JOG buttons) and asks for the
+//! readings.
+//!
 //! Saving hands the settings to the UI task (which owns flash and knows
 //! whether the carriage is idle), then the controller restarts with WiFi off.
 
@@ -15,7 +19,8 @@ use core::fmt::Write as _;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use els_core::settings::Settings;
-use els_core::web::{self, Method};
+use els_core::ui::Command;
+use els_core::web::{self, Method, WizardStep};
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
@@ -24,14 +29,14 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Write;
 use esp_hal::peripherals::WIFI;
 use esp_println::println;
 use esp_radio::wifi::{AccessPointConfig, AuthMethod, ModeConfig, WifiDevice};
 use static_cell::StaticCell;
 
-use crate::config;
+use crate::{config, COMMANDS, STATUS};
 
 /// UI → setup: bring up the hotspot.
 pub static START: Signal<CriticalSectionRawMutex, ()> = Signal::new();
@@ -181,23 +186,51 @@ async fn serve(socket: &mut TcpSocket<'_>, request: &mut [u8], page: &mut Page) 
     };
     let Some(req) = web::parse_request(&request[..n]) else { return Ok(()) };
     let current = CURRENT.lock(|c| c.get()).unwrap_or(config::DEFAULTS);
+    let body = core::str::from_utf8(&request[header_len..header_len + content_length]).unwrap_or("");
+    // Backlash wizard: compensation in use for this round, from the form.
+    let b = web::form_mm(body, "b").unwrap_or(0).clamp(0, web::MAX_BACKLASH_DU);
 
     match (req.method, req.path) {
         (Method::Get, "/") => render(socket, page, &current, None).await,
-        (Method::Post, "/save") => {
-            let body = core::str::from_utf8(&request[header_len..header_len + content_length]).unwrap_or("");
-            match web::apply_form(body, &current, config::TIMING) {
-                Err(e) => render(socket, page, &current, Some(e.message())).await,
-                Ok(new) => {
-                    SAVE_RESULT.reset();
-                    SAVE_REQUEST.send(new).await;
-                    match SAVE_RESULT.wait().await {
-                        Ok(()) => {
-                            respond(socket, "200 OK", "text/html; charset=utf-8", web::SAVED_PAGE.as_bytes()).await
-                        }
-                        Err(e) => render(socket, page, &current, Some(e)).await,
-                    }
+        (Method::Post, "/save") => match web::apply_form(body, &current, config::TIMING) {
+            Err(e) => render(socket, page, &current, Some(e.message())).await,
+            Ok(new) => save(socket, page, &current, new).await,
+        },
+        (Method::Get, "/backlash") => {
+            wizard(socket, page, WizardStep::Intro { saved_du: current.backlash_du as i64 }, None).await
+        }
+        (Method::Post, "/backlash/takeup") => {
+            let steps = current.machine().du_to_steps(b);
+            COMMANDS.send(Command::SetBacklashSteps(steps)).await;
+            match wizard_move(&current, true, web::WIZARD_TAKEUP_DU).await {
+                Ok(()) => wizard(socket, page, WizardStep::Zero { compensation_du: b }, None).await,
+                Err(e) => {
+                    wizard(socket, page, WizardStep::Intro { saved_du: current.backlash_du as i64 }, Some(e)).await
                 }
+            }
+        }
+        (Method::Post, "/backlash/probe") => match wizard_move(&current, false, web::WIZARD_PROBE_DU).await {
+            Ok(()) => wizard(socket, page, WizardStep::Read { compensation_du: b }, None).await,
+            Err(e) => wizard(socket, page, WizardStep::Zero { compensation_du: b }, Some(e)).await,
+        },
+        (Method::Post, "/backlash/result") => match web::form_mm(body, "reading") {
+            Some(reading_du) => {
+                let step = WizardStep::Result {
+                    compensation_du: b,
+                    reading_du,
+                    backlash_du: web::refine_backlash(b, reading_du),
+                };
+                wizard(socket, page, step, None).await
+            }
+            None => {
+                wizard(socket, page, WizardStep::Read { compensation_du: b }, Some("Enter the reading in mm")).await
+            }
+        },
+        (Method::Post, "/backlash/save") => {
+            let new = Settings { backlash_du: b as u32, ..current };
+            match new.validate(config::TIMING) {
+                Ok(()) => save(socket, page, &current, new).await,
+                Err(e) => render(socket, page, &current, Some(e)).await,
             }
         }
         // Captive-portal probes and anything else: send the browser to the page.
@@ -211,6 +244,58 @@ async fn serve(socket: &mut TcpSocket<'_>, request: &mut [u8], page: &mut Page) 
             socket.write_all(head.as_bytes()).await
         }
     }
+}
+
+/// Hand settings to the UI task to save; it restarts the controller.
+async fn save(
+    socket: &mut TcpSocket<'_>,
+    page: &mut Page,
+    current: &Settings,
+    new: Settings,
+) -> Result<(), embassy_net::tcp::Error> {
+    SAVE_RESULT.reset();
+    SAVE_REQUEST.send(new).await;
+    match SAVE_RESULT.wait().await {
+        Ok(()) => respond(socket, "200 OK", "text/html; charset=utf-8", web::SAVED_PAGE.as_bytes()).await,
+        Err(e) => render(socket, page, current, Some(e)).await,
+    }
+}
+
+/// Jog the carriage exactly `distance_du` (a tap) and wait until it stops.
+async fn wizard_move(s: &Settings, left: bool, distance_du: i64) -> Result<(), &'static str> {
+    let status = || STATUS.lock(|st| st.get());
+    if status().engaged {
+        return Err("Disengage first");
+    }
+    let start = status().pos;
+    // Level 1: the 0.1 jog distance's speed, 2 mm/s by default.
+    COMMANDS.send(Command::Jog { left, distance_du, level: 1 }).await;
+    COMMANDS.send(Command::JogRelease).await;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    // Status is published every 20 ms; give the move time to show up first.
+    Timer::after_millis(100).await;
+    while status().jogging {
+        if Instant::now() > deadline {
+            return Err("The carriage didn't finish moving");
+        }
+        Timer::after_millis(20).await;
+    }
+    let expected = s.machine().du_to_steps(distance_du) * if left { 1 } else { -1 };
+    if status().pos - start != expected {
+        return Err("The carriage was stopped short: clear the stops (Zero Z) and start again");
+    }
+    Ok(())
+}
+
+async fn wizard(
+    socket: &mut TcpSocket<'_>,
+    page: &mut Page,
+    step: WizardStep,
+    notice: Option<&str>,
+) -> Result<(), embassy_net::tcp::Error> {
+    page.clear();
+    let _ = web::render_backlash(page, step, notice);
+    respond(socket, "200 OK", "text/html; charset=utf-8", page.as_bytes()).await
 }
 
 async fn render(

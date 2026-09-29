@@ -105,6 +105,9 @@ pub const DEFAULTS: Settings = Settings {
     jog_speeds_du_per_s: [5_000, 20_000, 80_000, 250_000],
     jog_hold_after_ms: 400,
     jog_level_every_ms: 1_000,
+    // Lead screw backlash in du, taken up on every reversal. Measure it with
+    // the wizard on the setup page.
+    backlash_du: 0,
 };
 
 // ---------------------------------------------------------------------------

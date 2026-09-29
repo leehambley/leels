@@ -8,7 +8,8 @@ use crate::stepgen::{StepGenConfig, MAX_STEPS_PER_SEGMENT};
 use crate::Machine;
 
 pub const SETTINGS_MAGIC: u32 = u32::from_le_bytes(*b"LELS");
-pub const SETTINGS_VERSION: u16 = 1;
+/// 2 added `backlash_du` (version 1 records load with no compensation).
+pub const SETTINGS_VERSION: u16 = 2;
 pub const STATE_MAGIC: u32 = u32::from_le_bytes(*b"LEOP");
 pub const STATE_VERSION: u16 = 1;
 /// Upper bound on an encoded record (header + payload) of either kind.
@@ -35,6 +36,8 @@ pub struct Settings {
     pub jog_speeds_du_per_s: [u32; JOG_LEVELS],
     pub jog_hold_after_ms: u32,
     pub jog_level_every_ms: u32,
+    /// Lead screw backlash, compensated on every reversal.
+    pub backlash_du: u32,
 }
 
 /// Fixed motion timing from the firmware, needed to validate settings.
@@ -76,6 +79,11 @@ impl Settings {
             max_speed: self.speed_max,
             acceleration: self.acceleration,
         }
+    }
+
+    /// Backlash compensation in motor steps.
+    pub fn backlash_steps(&self) -> i64 {
+        self.machine().du_to_steps(self.backlash_du as i64)
     }
 
     pub fn jog(&self) -> JogConfig {
@@ -134,11 +142,13 @@ impl Settings {
         }
         w.u32(self.jog_hold_after_ms);
         w.u32(self.jog_level_every_ms);
+        w.u32(self.backlash_du);
         let len = w.finish()?;
         record::encode(SETTINGS_MAGIC, SETTINGS_VERSION, sequence, &payload[..len], out)
     }
 
-    fn decode_v1(payload: &[u8]) -> Option<Self> {
+    /// Version 2 is version 1 plus `backlash_du` at the end.
+    fn decode(payload: &[u8], version: u16) -> Option<Self> {
         let mut r = Reader::new(payload);
         let s = Settings {
             encoder_ppr: r.u32()?,
@@ -159,6 +169,7 @@ impl Settings {
             jog_speeds_du_per_s: [r.u32()?, r.u32()?, r.u32()?, r.u32()?],
             jog_hold_after_ms: r.u32()?,
             jog_level_every_ms: r.u32()?,
+            backlash_du: if version >= 2 { r.u32()? } else { 0 },
         };
         r.done().then_some(s)
     }
@@ -170,8 +181,8 @@ impl Settings {
             Loaded::Corrupt => (defaults, Origin::Corrupt),
             Loaded::Found { record, .. } => {
                 let decoded = match record.version {
-                    1 => Self::decode_v1(record.payload),
-                    // Future versions: add migrations here, e.g. `2 => decode_v2(..)`.
+                    1 | 2 => Self::decode(record.payload, record.version),
+                    // Future versions: add migrations here.
                     _ => return (defaults, Origin::Unsupported),
                 };
                 match decoded {
@@ -329,6 +340,17 @@ pub const FIELDS: &[Field] = &[
         1,
         100_000_000,
         acceleration
+    ),
+    field!(
+        "backlash",
+        "Lead screw and motor",
+        "Backlash",
+        "mm",
+        "Slack between screw and nut, taken up on every reversal. <a href=/backlash>Measure it</a> with a dial indicator.",
+        Decimal4,
+        0,
+        20_000,
+        backlash_du
     ),
     field!(
         "max_pitch",
@@ -520,6 +542,7 @@ pub(crate) mod tests {
         jog_speeds_du_per_s: [5_000, 20_000, 80_000, 250_000],
         jog_hold_after_ms: 400,
         jog_level_every_ms: 1_000,
+        backlash_du: 0,
     };
 
     fn saved(s: &Settings, seq: u32) -> [u8; MAX_RECORD_LEN] {
@@ -539,6 +562,7 @@ pub(crate) mod tests {
         s.screw_du = 50_800;
         s.invert_dir = true;
         s.jog_speeds_du_per_s[2] = 123_456;
+        s.backlash_du = 1_250;
         let a = saved(&s, 3);
         let blank = [0xFF; MAX_RECORD_LEN];
         let (got, origin) = Settings::from_loaded(&load(SETTINGS_MAGIC, [&a, &blank]), DEFAULTS, TIMING);
@@ -559,6 +583,21 @@ pub(crate) mod tests {
         record::encode(SETTINGS_MAGIC, 99, 1, b"whatever", &mut future).unwrap();
         let loaded = load(SETTINGS_MAGIC, [&future, &blank]);
         assert_eq!(Settings::from_loaded(&loaded, DEFAULTS, TIMING).1, Origin::Unsupported);
+    }
+
+    #[test]
+    fn version_1_records_load_without_backlash() {
+        let mut s = DEFAULTS;
+        s.screw_du = 50_800;
+        let mut a = [0xFF; MAX_RECORD_LEN];
+        let n = s.encode(1, &mut a).unwrap();
+        // Rewrite as version 1: same fields without the trailing backlash.
+        let payload = record::decode(SETTINGS_MAGIC, &a[..n]).unwrap().payload.to_vec();
+        let mut v1 = [0xFF; MAX_RECORD_LEN];
+        record::encode(SETTINGS_MAGIC, 1, 1, &payload[..payload.len() - 4], &mut v1).unwrap();
+        let blank = [0xFF; MAX_RECORD_LEN];
+        let (got, origin) = Settings::from_loaded(&load(SETTINGS_MAGIC, [&v1, &blank]), DEFAULTS, TIMING);
+        assert_eq!((got, origin), (s, Origin::Saved));
     }
 
     #[test]
