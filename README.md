@@ -31,6 +31,11 @@ display and hotspot settings, and `DEFAULTS`, the machine settings used until
 you save your own. Machine settings are normally changed without recompiling,
 from the setup page (below).
 - **C6** pins (ESP32-C6-DevKitC-1): encoder A 10 / B 11 (Z reserved on 7, not read yet), STEP 18, DIR 19, ENA 20 (S2-SVD servo: wired straight to its opto inputs, see `config.rs`), Nextion TX 22 / RX 23. All are 3.3 V only.
+- **C6 breadboard build** (`cargo run --release --features breadboard`), for
+  test-driving on a solder breadboard with a 74HCT125 under the DevKit
+  driving the servo at 5 V: STEP 18, DIR 8, ENA 9 (active low, gates the
+  buffer), encoder A 21 / B 15. `config.rs` has the IC wiring. A PCB would
+  use the normal pinout.
 - **S3** pins: NanoEls H5 pinout (encoder 13/14, STEP 35, DIR 42, ENA 41, Nextion TX 43 / RX 44).
 
 The spindle encoder has open-drain outputs, so the ESP32's internal pull-ups

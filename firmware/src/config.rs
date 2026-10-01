@@ -33,7 +33,7 @@ pub struct Pins {
 /// carriage) in Pn257, automatic gains (Pn258), rigidity Pn259 = 8 (9 and up
 /// hums), online inertia estimation off (Pn260 = 0), command smoothing off
 /// (Pn109 = 0). Save with Fn001 and power-cycle.
-#[cfg(feature = "esp32c6")]
+#[cfg(all(feature = "esp32c6", not(feature = "breadboard")))]
 macro_rules! take_pins {
     ($p:ident) => {
         $crate::config::Pins {
@@ -47,6 +47,49 @@ macro_rules! take_pins {
         }
     };
 }
+
+/// BREADBOARD BUILD (`--features breadboard`), for test-driving on a solder
+/// breadboard. Not for a PCB.
+///
+/// A 74HCT125 (VCC 5 V) sits in the valley under the DevKitC-1 with pin 14
+/// on the 5V row, so every IC pin shares a strip with a header pin:
+///
+/// | IC pin | strip    | use                                            |
+/// |--------|----------|------------------------------------------------|
+/// | 14 VCC | 5V       | supply, 100 nF to pin 7                        |
+/// | 5  2A  | GPIO18   | STEP in                                        |
+/// | 6  2Y  | GPIO19   | STEP out to CN2 14 (PP-); GPIO19 left unused   |
+/// | 4  2OE | GPIO9    | ENA, active low (BOOT strap: high during reset,|
+/// |        |          | so the outputs are off while the chip boots)   |
+/// | 9  3A  | GPIO8    | DIR in                                         |
+/// | 8  3Y  | GPIO1    | DIR out to CN2 5 (PD-); GPIO1 left unused      |
+/// | 10 3OE | GPIO10   | jumpered to the GPIO9 strip; GPIO10 unused     |
+/// | 7  GND | GPIO20   | jumpered to a G pin; GPIO20 unused (never      |
+/// |        |          | driven: it's ground now)                       |
+/// | 1, 13  | 12, 3    | bent out, tied to pin 14 (channels 1, 4 off)   |
+/// | 2, 12  | 13, 2    | bent out, tied to GND                          |
+/// | 3, 11  | G, 11    | cut off                                        |
+///
+/// CN2 PP+ (3) and PD+ (4) go to 5V. The encoder moves to GPIO21/15
+/// (GPIO10/11 are taken, and GPIO0-7 are LP pads, see encoder-log), each
+/// with its own 4.7k pull-up to 3V3. ENA is forced active-low (`invert_enable`).
+#[cfg(all(feature = "esp32c6", feature = "breadboard"))]
+macro_rules! take_pins {
+    ($p:ident) => {
+        $crate::config::Pins {
+            encoder_a: esp_hal::gpio::Pin::degrade($p.GPIO21),
+            encoder_b: esp_hal::gpio::Pin::degrade($p.GPIO15),
+            step: esp_hal::gpio::Pin::degrade($p.GPIO18),
+            dir: esp_hal::gpio::Pin::degrade($p.GPIO8),
+            enable: esp_hal::gpio::Pin::degrade($p.GPIO9),
+            nextion_tx: esp_hal::gpio::Pin::degrade($p.GPIO22),
+            nextion_rx: esp_hal::gpio::Pin::degrade($p.GPIO23),
+        }
+    };
+}
+
+#[cfg(all(feature = "breadboard", not(feature = "esp32c6")))]
+compile_error!("the breadboard pinout is for the ESP32-C6 DevKitC-1 only");
 
 /// ESP32-S3 on the NanoEls H5 board (secondary target, needs the Xtensa toolchain).
 #[cfg(feature = "esp32s3")]
@@ -95,7 +138,8 @@ pub const DEFAULTS: Settings = Settings {
     max_pitch_du: 254_000,
     // Driver signals. STEP idles high and pulses low on the NanoEls H5.
     invert_dir: false,
-    invert_enable: false,
+    // The breadboard build gates the buffer's active-low OE with ENA.
+    invert_enable: cfg!(feature = "breadboard"),
     step_active_low: true,
     step_pulse_ns: 2_500,
     dir_setup_ns: 10_000,

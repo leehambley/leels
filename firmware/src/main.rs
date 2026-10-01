@@ -135,6 +135,13 @@ async fn main(spawner: Spawner) {
         (config::DEFAULTS, Origin::FirstBoot, None)
     };
     println!("settings: {:?}", origin);
+    // The breadboard wiring fixes ENA's polarity (the buffer's OE is active
+    // low), whatever was saved.
+    #[cfg(feature = "breadboard")]
+    let settings = {
+        println!("BREADBOARD BUILD: STEP 18, DIR 8, ENA 9 (active low), encoder 21/15");
+        Settings { invert_enable: true, ..settings }
+    };
     setup::CURRENT.lock(|c| c.set(Some(settings)));
 
     let pins = take_pins!(p);

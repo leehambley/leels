@@ -50,6 +50,11 @@ bench = ["setup-on-boot", "nextion-log"]
 # Hardware-in-the-loop tests (hil/): touch input over USB, display commands
 # and STEP pulse counts in the log, defaults instead of saved settings.
 hil = ["nextion-log"]
+# Test-drive build on a solder breadboard (C6 only): a 74HCT125 buffer in
+# the valley under the DevKit drives the servo at 5 V, so STEP/DIR/ENA and
+# the encoder move to pins that line up with it. See config.rs. A PCB would
+# use the normal pinout.
+breadboard = []
 # Log every byte to and from the display, and each decoded key.
 nextion-log = []
 # Log encoder pin levels, software-counted edges, PCNT count and RPM twice a second.
