@@ -73,7 +73,12 @@ macro_rules! take_pins {
 /// CN2 PP+ (3) and PD+ (4) go to 5V. The encoder moves to GPIO21/15
 /// (GPIO10/11 are taken, and GPIO0-7 are LP pads, see encoder-log), each
 /// with its own 4.7k pull-up to GPIO17 (the RX pin), which the firmware
-/// holds high as a 3.3 V supply on the J3 side (about 1.4 mA). ENA is forced active-low (`invert_enable`).
+/// holds high as a 3.3 V supply on the J3 side (about 1.4 mA).
+///
+/// Servo enable (optional): GPIO11 (its strip is free once IC pin 11 is cut)
+/// goes high once the firmware runs. Through 1-1.5k into a 2N3904 base (10k
+/// base to GND): collector to CN2 6 (SigIn1), emitter to CN2 10 (COM) and
+/// GND, CN2 9 to the input supply. Set Pn003 = 0 to use it. ENA is forced active-low (`invert_enable`).
 #[cfg(all(feature = "esp32c6", feature = "breadboard"))]
 macro_rules! take_pins {
     ($p:ident) => {

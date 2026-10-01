@@ -149,6 +149,10 @@ async fn main(spawner: Spawner) {
     // pull-ups on the J3 side. Held high for good; off only while booting.
     #[cfg(feature = "breadboard")]
     core::mem::forget(Output::new(p.GPIO17, Level::High, OutputConfig::default()));
+    // Breadboard build: GPIO11 switches the servo on (SigIn1, through an NPN
+    // with a base pull-down), so the drive stays off until the firmware runs.
+    #[cfg(feature = "breadboard")]
+    core::mem::forget(Output::new(p.GPIO11, Level::High, OutputConfig::default()));
 
     // Spindle encoder: count both edges of A, direction from B (2 counts per line).
     // Open-drain encoder: the internal pull-ups supply the high level.
