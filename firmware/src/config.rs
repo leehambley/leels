@@ -72,7 +72,8 @@ macro_rules! take_pins {
 ///
 /// CN2 PP+ (3) and PD+ (4) go to 5V. The encoder moves to GPIO21/15
 /// (GPIO10/11 are taken, and GPIO0-7 are LP pads, see encoder-log), each
-/// with its own 4.7k pull-up to 3V3. ENA is forced active-low (`invert_enable`).
+/// with its own 4.7k pull-up to GPIO17 (the RX pin), which the firmware
+/// holds high as a 3.3 V supply on the J3 side (about 1.4 mA). ENA is forced active-low (`invert_enable`).
 #[cfg(all(feature = "esp32c6", feature = "breadboard"))]
 macro_rules! take_pins {
     ($p:ident) => {

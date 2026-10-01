@@ -34,7 +34,8 @@ from the setup page (below).
 - **C6 breadboard build** (`cargo run --release --features breadboard`), for
   test-driving on a solder breadboard with a 74HCT125 under the DevKit
   driving the servo at 5 V: STEP 18, DIR 8, ENA 9 (active low, gates the
-  buffer), encoder A 21 / B 15. `config.rs` has the IC wiring. A PCB would
+  buffer), encoder A 21 / B 15 with pull-ups fed from GPIO17 (RX, held
+  high). `config.rs` has the IC wiring. A PCB would
   use the normal pinout.
 - **S3** pins: NanoEls H5 pinout (encoder 13/14, STEP 35, DIR 42, ENA 41, Nextion TX 43 / RX 44).
 

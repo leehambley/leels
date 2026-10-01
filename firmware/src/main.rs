@@ -145,6 +145,10 @@ async fn main(spawner: Spawner) {
     setup::CURRENT.lock(|c| c.set(Some(settings)));
 
     let pins = take_pins!(p);
+    // Breadboard build: GPIO17 (the RX pin) supplies 3.3 V to the encoder
+    // pull-ups on the J3 side. Held high for good; off only while booting.
+    #[cfg(feature = "breadboard")]
+    core::mem::forget(Output::new(p.GPIO17, Level::High, OutputConfig::default()));
 
     // Spindle encoder: count both edges of A, direction from B (2 counts per line).
     // Open-drain encoder: the internal pull-ups supply the high level.
