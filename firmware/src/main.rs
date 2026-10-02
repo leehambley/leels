@@ -27,6 +27,8 @@ extern crate alloc;
 mod config;
 #[cfg(feature = "hil")]
 mod hil;
+#[cfg(feature = "esp32c6")]
+mod led;
 mod setup;
 mod storage;
 
@@ -111,7 +113,8 @@ struct MotionHw {
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
-    let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
+    #[allow(unused_mut)]
+    let mut p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let timg0 = TimerGroup::new(p.TIMG0);
     let sw = SoftwareInterruptControl::new(p.SW_INTERRUPT);
     #[cfg(feature = "esp32c6")]
@@ -144,14 +147,19 @@ async fn main(spawner: Spawner) {
     };
     setup::CURRENT.lock(|c| c.set(Some(settings)));
 
-    let pins = take_pins!(p);
+    // Mutable for the breadboard build's boot rainbow, which borrows RMT and DIR.
+    #[allow(unused_mut)]
+    let mut pins = take_pins!(p);
     // Breadboard build: GPIO17 (the RX pin) supplies 3.3 V to the encoder
     // pull-ups on the J3 side. Held high for good; off only while booting.
+    // (`forget` so the pin stays driven even if `Output` ever resets on drop.)
     #[cfg(feature = "breadboard")]
+    #[allow(clippy::forget_non_drop)]
     core::mem::forget(Output::new(p.GPIO17, Level::High, OutputConfig::default()));
     // Breadboard build: GPIO11 switches the servo on (SigIn1, through an NPN
     // with a base pull-down), so the drive stays off until the firmware runs.
     #[cfg(feature = "breadboard")]
+    #[allow(clippy::forget_non_drop)]
     core::mem::forget(Output::new(p.GPIO11, Level::High, OutputConfig::default()));
 
     // Spindle encoder: count both edges of A, direction from B (2 counts per line).
@@ -174,6 +182,23 @@ async fn main(spawner: Spawner) {
     unit.resume();
 
     let enabled = if settings.invert_enable { Level::Low } else { Level::High };
+    #[allow(unused_mut)]
+    let mut enable = Output::new(pins.enable, enabled, OutputConfig::default());
+    // Breadboard build: GPIO8 is DIR, so the LED only gets a boot rainbow (on
+    // a short-lived RMT driver, before the motion task takes RMT), with ENA
+    // (the buffer's OE) held off so DIR's strip can toggle harmlessly.
+    #[cfg(feature = "breadboard")]
+    {
+        enable.set_level(!enabled);
+        let rmt = Rmt::new(p.RMT.reborrow(), Rate::from_mhz(config::RMT_SOURCE_MHZ)).unwrap().into_async();
+        let mut led = rmt.channel1.configure_tx(pins.dir.reborrow(), led::tx_config()).unwrap();
+        led::boot_rainbow(&mut led, 1_500).await;
+        drop(led);
+        enable.set_level(enabled);
+    }
+    // Normal build: the LED task joins in once the motion task has set up RMT.
+    #[cfg(all(feature = "esp32c6", not(feature = "breadboard")))]
+    spawner.spawn(led::rainbow_task(p.GPIO8)).unwrap();
     let step = Flex::new(pins.step);
     // Flex so the hil build can read the pin back as well.
     let dir = Output::new(pins.dir, Level::Low, OutputConfig::default()).into_flex();
@@ -186,7 +211,7 @@ async fn main(spawner: Spawner) {
         #[cfg(feature = "hil")]
         step_counter,
         dir,
-        _enable: Output::new(pins.enable, enabled, OutputConfig::default()),
+        _enable: enable,
         _encoder_a: encoder_a,
         _encoder_b: encoder_b,
     };
@@ -339,6 +364,9 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
                 .with_idle_output_level(levels.1),
         )
         .unwrap();
+    // Channel 1 is left to the LED task, which waits for this.
+    #[cfg(all(feature = "esp32c6", not(feature = "breadboard")))]
+    led::RMT_READY.store(true, core::sync::atomic::Ordering::Release);
 
     let machine = settings.machine();
     let segment_us = config::SEGMENT_US as u64;
@@ -391,6 +419,8 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
         "encoder: ppr {} filter {} backlash {} invert {}",
         settings.encoder_ppr, settings.encoder_filter_cycles, settings.encoder_backlash, settings.invert_spindle
     );
+    #[cfg(feature = "encoder-log")]
+    println!("settings: {:?}", settings);
 
     // Double buffer: `playing` is on the wire while `planned` is filled.
     let mut playing = Codes::new();
