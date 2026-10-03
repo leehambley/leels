@@ -58,17 +58,23 @@ macro_rules! take_pins {
 /// |--------|----------|------------------------------------------------|
 /// | 14 VCC | 5V       | supply, 100 nF to pin 7                        |
 /// | 5  2A  | GPIO18   | STEP in                                        |
-/// | 6  2Y  | GPIO19   | STEP out to CN2 14 (PP-); GPIO19 left unused   |
+/// | 6  2Y  | GPIO19   | STEP out to CN2 14 (PP-); cut DevKit pin 19    |
 /// | 4  2OE | GPIO9    | ENA, active low (BOOT strap: high during reset,|
 /// |        |          | so the outputs are off while the chip boots)   |
 /// | 9  3A  | GPIO8    | DIR in                                         |
-/// | 8  3Y  | GPIO1    | DIR out to CN2 5 (PD-); GPIO1 left unused      |
+/// | 8  3Y  | GPIO1    | DIR out to CN2 5 (PD-); cut DevKit pin 1       |
 /// | 10 3OE | GPIO10   | jumpered to the GPIO9 strip; GPIO10 unused     |
 /// | 7  GND | GPIO20   | jumpered to a G pin; GPIO20 unused (never      |
 /// |        |          | driven: it's ground now)                       |
-/// | 1, 13  | 12, 3    | bent out, tied to pin 14 (channels 1, 4 off)   |
-/// | 2, 12  | 13, 2    | bent out, tied to GND                          |
+/// | 1, 13  | 12, 3    | tied to pin 14 (channels 1, 4 off)             |
+/// | 2, 12  | 13, 2    | tied to GND                                    |
 /// | 3, 11  | G, 11    | cut off                                        |
+///
+/// Cut the DevKit's header pins 1, 2, 3, 12, 13 and 19 before fitting it:
+/// their strips carry 5 V, GND or the buffer's 5 V outputs, and 5 V on
+/// GPIO12 (USB D-) killed a board. USB doesn't need the header pins.
+/// Servo-side wiring and wire colours: README, "Breadboard build: servo
+/// wiring", and docs/images/cn2-wiring.svg.
 ///
 /// CN2 PP+ (3) and PD+ (4) go to 5V. The encoder moves to GPIO21/15
 /// (GPIO10/11 are taken, and GPIO0-7 are LP pads, see encoder-log), each
