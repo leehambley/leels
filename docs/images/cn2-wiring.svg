@@ -1,70 +1,59 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 660" font-family="Helvetica, Arial, sans-serif" font-size="13">
-<title>S2-SVD servo CN2 (DB25) wiring for the breadboard build</title>
-<rect width="760" height="660" fill="#ffffff"/>
-<text x="20" y="26" font-size="16" font-weight="bold" fill="#222">S2-SVD servo CN2 (DB25)</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 520" font-family="Helvetica, Arial, sans-serif" font-size="13">
+<title>S2-SVD servo CN2 (DB25) wiring for the breadboard build, 5 V only</title>
+<rect width="760" height="520" fill="#ffffff"/>
+<text x="20" y="26" font-size="16" font-weight="bold" fill="#222">S2-SVD servo CN2 (DB25), 5 V only</text>
 <path d="M110 130 L650 130 L628 240 L132 240 Z" fill="none" stroke="#555" stroke-width="2" stroke-linejoin="round"/>
 <g stroke="#888" stroke-width="1.5">
-<line x1="540" y1="150" x2="540" y2="62"/><line x1="300" y1="150" x2="300" y2="62"/>
-<line x1="460" y1="150" x2="460" y2="82"/><line x1="260" y1="150" x2="260" y2="82"/>
-<line x1="420" y1="176" x2="420" y2="262"/><line x1="600" y1="221" x2="600" y2="262"/><line x1="500" y1="176" x2="500" y2="282"/>
+<line x1="540" y1="150" x2="540" y2="62"/><line x1="460" y1="150" x2="460" y2="82"/>
+<line x1="600" y1="221" x2="600" y2="262"/><line x1="500" y1="176" x2="500" y2="282"/>
 </g>
+<g stroke="#aaa" stroke-width="1.5" stroke-dasharray="3 3"><line x1="260" y1="150" x2="260" y2="62"/><line x1="300" y1="150" x2="300" y2="62"/><line x1="420" y1="150" x2="420" y2="102"/></g>
 <g fill="#f2f2f2" stroke="#999" stroke-width="1">
 <circle cx="140" cy="163" r="13"/><circle cx="180" cy="163" r="13"/><circle cx="220" cy="163" r="13"/><circle cx="340" cy="163" r="13"/><circle cx="380" cy="163" r="13"/><circle cx="580" cy="163" r="13"/><circle cx="620" cy="163" r="13"/>
 <circle cx="160" cy="208" r="13"/><circle cx="200" cy="208" r="13"/><circle cx="240" cy="208" r="13"/><circle cx="280" cy="208" r="13"/><circle cx="320" cy="208" r="13"/><circle cx="360" cy="208" r="13"/><circle cx="400" cy="208" r="13"/><circle cx="440" cy="208" r="13"/><circle cx="480" cy="208" r="13"/><circle cx="520" cy="208" r="13"/><circle cx="560" cy="208" r="13"/>
 </g>
+<g fill="#ffffff" stroke="#999" stroke-width="1.5" stroke-dasharray="3 3"><circle cx="260" cy="163" r="13"/><circle cx="300" cy="163" r="13"/><circle cx="420" cy="163" r="13"/></g>
 <g font-size="11" fill="#555" text-anchor="middle">
-<text x="140" y="167">13</text><text x="180" y="167">12</text><text x="220" y="167">11</text><text x="340" y="167">8</text><text x="380" y="167">7</text><text x="580" y="167">2</text><text x="620" y="167">1</text>
+<text x="140" y="167">13</text><text x="180" y="167">12</text><text x="220" y="167">11</text><text x="260" y="167">10</text><text x="300" y="167">9</text><text x="340" y="167">8</text><text x="380" y="167">7</text><text x="420" y="167">6</text><text x="580" y="167">2</text><text x="620" y="167">1</text>
 <text x="160" y="212">25</text><text x="200" y="212">24</text><text x="240" y="212">23</text><text x="280" y="212">22</text><text x="320" y="212">21</text><text x="360" y="212">20</text><text x="400" y="212">19</text><text x="440" y="212">18</text><text x="480" y="212">17</text><text x="520" y="212">16</text><text x="560" y="212">15</text>
 </g>
 <g font-size="11" text-anchor="middle" fill="#fff">
 <circle cx="540" cy="163" r="13" fill="#8B5A2B"/><text x="540" y="167">3</text>
 <circle cx="500" cy="163" r="13" fill="#2E8B57"/><text x="500" y="167">4</text>
 <circle cx="460" cy="163" r="13" fill="#8C8C8C"/><text x="460" y="167" fill="#1f1f1f">5</text>
-<circle cx="420" cy="163" r="13" fill="#E58FB4"/><text x="420" y="167" fill="#4b1528">6</text>
-<circle cx="300" cy="163" r="13" fill="#D32F2F"/><text x="300" y="167">9</text>
-<circle cx="260" cy="163" r="13" fill="#1A1A1A"/><text x="260" y="167">10</text>
 <circle cx="600" cy="208" r="13" fill="#2F6FD0"/><text x="600" y="212">14</text>
 </g>
 <g font-size="12" fill="#222">
 <text x="540" y="58" text-anchor="middle">brown · PP+ (5 V)</text>
-<text x="300" y="58" text-anchor="middle">red · +V (12–24 V)</text>
 <text x="460" y="78" text-anchor="middle">grey · PD− (DIR)</text>
-<text x="254" y="78" text-anchor="end">black · COM</text>
-<text x="420" y="276" text-anchor="middle">pink · SigIn1 (enable)</text>
 <text x="600" y="276" text-anchor="middle">blue · PP− (STEP)</text>
 <text x="500" y="296" text-anchor="middle">green · PD+ (5 V)</text>
+</g>
+<g font-size="12" fill="#777">
+<text x="280" y="58" text-anchor="middle">9, 10: unconnected</text>
+<text x="420" y="98" text-anchor="middle">6: unconnected</text>
 </g>
 <text x="20" y="322" font-size="11" fill="#666">Face as drawn in the drive manual. A mating plug's solder side is mirrored: go by the numbers moulded on the connector.</text>
 <text x="20" y="352" font-size="16" font-weight="bold" fill="#222">Breadboard connectors to CN2</text>
 <g stroke-width="3">
 <line x1="300" y1="382" x2="520" y2="382" stroke="#8B5A2B"/><line x1="300" y1="389" x2="520" y2="389" stroke="#2E8B57"/>
-<line x1="300" y1="425" x2="520" y2="425" stroke="#1A1A1A"/>
-<line x1="300" y1="465" x2="520" y2="465" stroke="#2F6FD0"/>
-<line x1="300" y1="505" x2="520" y2="505" stroke="#8C8C8C"/>
-<line x1="300" y1="545" x2="520" y2="545" stroke="#E58FB4"/>
-<line x1="300" y1="590" x2="520" y2="590" stroke="#D32F2F"/>
+<line x1="300" y1="425" x2="520" y2="425" stroke="#2F6FD0"/>
+<line x1="300" y1="465" x2="520" y2="465" stroke="#8C8C8C"/>
 </g>
 <g fill="#e8f0fb" stroke="#2f6fd0" stroke-width="1">
-<rect x="20" y="370" width="280" height="30" rx="4"/><rect x="20" y="410" width="280" height="30" rx="4"/><rect x="20" y="450" width="280" height="30" rx="4"/><rect x="20" y="490" width="280" height="30" rx="4"/><rect x="20" y="530" width="280" height="30" rx="4"/>
-<rect x="520" y="370" width="220" height="30" rx="4"/><rect x="520" y="410" width="220" height="30" rx="4"/><rect x="520" y="450" width="220" height="30" rx="4"/><rect x="520" y="490" width="220" height="30" rx="4"/><rect x="520" y="530" width="220" height="30" rx="4"/>
+<rect x="20" y="370" width="280" height="30" rx="4"/><rect x="20" y="410" width="280" height="30" rx="4"/><rect x="20" y="450" width="280" height="30" rx="4"/>
+<rect x="520" y="370" width="220" height="30" rx="4"/><rect x="520" y="410" width="220" height="30" rx="4"/><rect x="520" y="450" width="220" height="30" rx="4"/>
 </g>
-<g fill="#fbefd9" stroke="#b07515" stroke-width="1"><rect x="20" y="575" width="280" height="30" rx="4"/><rect x="520" y="575" width="220" height="30" rx="4"/></g>
 <g fill="#222">
 <text x="32" y="390"><tspan font-weight="bold">POWER</tspan>  5 V rail</text>
-<text x="32" y="430"><tspan font-weight="bold">COM</tspan>  ESP32 GND, 2N3904 emitter</text>
-<text x="32" y="470"><tspan font-weight="bold">STEP</tspan>  GPIO18 → 74HCT125 pin 6</text>
-<text x="32" y="510"><tspan font-weight="bold">DIR</tspan>  GPIO8 → 74HCT125 pin 8</text>
-<text x="32" y="550"><tspan font-weight="bold">ENA</tspan>  GPIO11 → 2N3904 collector</text>
-<text x="32" y="595">12–24 V supply + (− to COM)</text>
+<text x="32" y="430"><tspan font-weight="bold">STEP</tspan>  GPIO18 → 74HCT125 pin 6</text>
+<text x="32" y="470"><tspan font-weight="bold">DIR</tspan>  GPIO8 → 74HCT125 pin 8</text>
 <text x="532" y="390">CN2 3 PP+ and 4 PD+</text>
-<text x="532" y="430">CN2 10 COM</text>
-<text x="532" y="470">CN2 14 PP−</text>
-<text x="532" y="510">CN2 5 PD−</text>
-<text x="532" y="550">CN2 6 SigIn1</text>
-<text x="532" y="595">CN2 9 +V</text>
+<text x="532" y="430">CN2 14 PP−</text>
+<text x="532" y="470">CN2 5 PD−</text>
 </g>
 <g font-size="11" fill="#444" text-anchor="middle">
-<text x="410" y="377">brown + green</text><text x="410" y="420">black</text><text x="410" y="460">blue</text><text x="410" y="500">grey</text><text x="410" y="540">pink</text><text x="410" y="585">red</text>
+<text x="410" y="377">brown + green</text><text x="410" y="420">blue</text><text x="410" y="460">grey</text>
 </g>
-<text x="20" y="636" font-size="12" fill="#222">Drive: Pn003 = 0 (GPIO11 enables it once the firmware runs). Before fitting the DevKit, cut its header pins 1, 2, 3, 12, 13, 19.</text>
+<text x="20" y="502" font-size="12" fill="#222">Drive: Pn003 = 1 (enables itself). Breadboard COM and ENA unused. Cut DevKit header pins 1, 2, 3, 12, 13, 19 before fitting.</text>
 </svg>

@@ -48,24 +48,21 @@ Logs go to USB-Serial-JTAG, which leaves both UARTs free.
 
 ### Breadboard build: servo wiring (S2-SVD CN2)
 
-<img src="docs/images/cn2-wiring.svg" alt="S2-SVD servo CN2, a 25-pin D-sub: pin 3 brown PP+ and pin 4 green PD+ to the 5 V rail, pin 14 blue PP minus from 74HCT125 pin 6 (STEP, GPIO18), pin 5 grey PD minus from 74HCT125 pin 8 (DIR, GPIO8), pin 6 pink SigIn1 from the 2N3904 collector (enable, GPIO11), pin 9 red +V from the 12 to 24 V supply, pin 10 black COM to ESP32 ground and the transistor's emitter." width="700">
+<img src="docs/images/cn2-wiring.svg" alt="S2-SVD servo CN2, a 25-pin D-sub, 5 V only: pin 3 brown PP+ and pin 4 green PD+ to the 5 V rail, pin 14 blue PP minus from 74HCT125 pin 6 (STEP, GPIO18), pin 5 grey PD minus from 74HCT125 pin 8 (DIR, GPIO8). Pins 6, 9 and 10 unconnected." width="700">
 
 | Breadboard | ESP32-C6 side | Wire | CN2 pin |
 |---|---|---|---|
 | POWER | 5 V rail | brown, green | 3 PP+, 4 PD+ |
-| COM | GND, 2N3904 emitter | black | 10 COM |
 | STEP | GPIO18 → 74HCT125 pin 6 (2Y) | blue | 14 PP− |
 | DIR | GPIO8 → 74HCT125 pin 8 (3Y) | grey | 5 PD− |
-| ENA | GPIO11 → 1–1.5k → 2N3904 base; collector | pink | 6 SigIn1 |
-| (not on the breadboard) | 12–24 V supply +, its − to COM | red | 9 +V |
 
 - The drive's inputs are optocouplers (330 Ω + LED): a low on PP− or PD−
-  sinks current from the 5 V rail through the LED. STEP pulses low.
-- Set **Pn003 = 0** so the drive is enabled by SigIn1, i.e. only once the
-  firmware runs. Without the enable transistor, use Pn003 = 1 and leave pins
-  6, 9 and 10 open.
-- Keep the 12–24 V supply away from the ESP32 side: only the transistor
-  connects to it.
+  sinks current from the 5 V rail through the LED and back to ground through
+  the 74HCT125. STEP pulses low. Nothing here is above 5 V.
+- Set **Pn003 = 1**: the drive enables itself at power-up. Leave CN2 6
+  (SigIn1), 9 (+V) and 10 (COM) unconnected: they're the drive's 12–24 V
+  input circuit (COM is that supply's minus), and SigIn1 won't switch from
+  5 V. The breadboard's COM and ENA connectors aren't used.
 - **Before fitting the DevKit, cut its header pins 1, 2, 3, 12, 13 and 19.**
   Their breadboard strips carry the 74HCT125's tie-offs (5 V, GND) or its
   5 V outputs; left in, 5 V reaches the ESP32 (GPIO12 is USB D−, and one

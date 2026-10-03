@@ -81,7 +81,9 @@ macro_rules! take_pins {
 /// with its own 4.7k pull-up to GPIO17 (the RX pin), which the firmware
 /// holds high as a 3.3 V supply on the J3 side (about 1.4 mA).
 ///
-/// Servo enable (optional): GPIO11 (its strip is free once IC pin 11 is cut)
+/// Servo enable (optional, needs the drive's 12-24 V input supply, so not
+/// used on a 5 V-only build: set Pn003 = 1 instead and leave CN2 6, 9 and 10
+/// open): GPIO11 (its strip is free once IC pin 11 is cut)
 /// goes high once the firmware runs. Through 1-1.5k into a 2N3904 base (10k
 /// base to GND): collector to CN2 6 (SigIn1), emitter to CN2 10 (COM) and
 /// GND, CN2 9 to the input supply. Set Pn003 = 0 to use it. ENA is forced active-low (`invert_enable`).
