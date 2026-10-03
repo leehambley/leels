@@ -44,14 +44,15 @@ heapless = "0.8"
 default = ["esp32c6"]
 # Bench testing without a display: start the setup hotspot at power-up.
 setup-on-boot = []
-# Bench debugging without a display: hotspot at power-up, Nextion UART
-# traffic logged, and a repeating jog sequence on STEP/DIR for a scope.
-bench = ["setup-on-boot", "nextion-log"]
+# Bench debugging without a display: Nextion UART traffic logged and a
+# repeating jog sequence on STEP/DIR for a scope. No hotspot: setup mode
+# locks out jogging.
+bench = ["nextion-log"]
 # Hardware-in-the-loop tests (hil/): touch input over USB, display commands
 # and STEP pulse counts in the log, defaults instead of saved settings.
 hil = ["nextion-log"]
 # Test-drive build on a solder breadboard (C6 only): a 74HCT125 buffer in
-# the valley under the DevKit drives the servo at 5 V, so STEP/DIR/ENA and
+# the valley under the DevKit drives the servo at 5 V, so STEP/DIR and
 # the encoder move to pins that line up with it. See config.rs. A PCB would
 # use the normal pinout.
 breadboard = []

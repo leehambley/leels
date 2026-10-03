@@ -33,10 +33,11 @@ from the setup page (below).
 - **C6** pins (ESP32-C6-DevKitC-1): encoder A 10 / B 11 (Z reserved on 7, not read yet), STEP 18, DIR 19, ENA 20 (S2-SVD servo: wired straight to its opto inputs, see `config.rs`), Nextion TX 22 / RX 23. All are 3.3 V only.
 - **C6 breadboard build** (`cargo run --release --features breadboard`), for
   test-driving on a solder breadboard with a 74HCT125 under the DevKit
-  driving the servo at 5 V: STEP 18, DIR 8, ENA 9 (active low, gates the
-  buffer), encoder A 21 / B 15 with pull-ups fed from GPIO17 (RX, held
-  high). `config.rs` has the IC wiring. A PCB would
-  use the normal pinout.
+  driving the servo at 5 V: STEP 18, DIR 8, encoder A 21 / B 15 with
+  pull-ups fed from GPIO17 (RX, held high). No ENA: the S2-SVD's enable
+  needs 24 V, which this setup doesn't have, so it isn't used (the drive
+  enables itself). `config.rs` has the IC wiring. A PCB would use the normal
+  pinout.
 - **S3** pins: NanoEls H5 pinout (encoder 13/14, STEP 35, DIR 42, ENA 41, Nextion TX 43 / RX 44).
 
 The spindle encoder has open-drain outputs, so the ESP32's internal pull-ups
@@ -59,14 +60,17 @@ Logs go to USB-Serial-JTAG, which leaves both UARTs free.
 - The drive's inputs are optocouplers (330 Ω + LED): a low on PP− or PD−
   sinks current from the 5 V rail through the LED and back to ground through
   the 74HCT125. STEP pulses low. Nothing here is above 5 V.
-- Set **Pn003 = 1**: the drive enables itself at power-up. Leave CN2 6
-  (SigIn1), 9 (+V) and 10 (COM) unconnected: they're the drive's 12–24 V
-  input circuit (COM is that supply's minus), and SigIn1 won't switch from
-  5 V. The breadboard's COM and ENA connectors aren't used.
-- **Before fitting the DevKit, cut its header pins 1, 2, 3, 12, 13 and 19.**
-  Their breadboard strips carry the 74HCT125's tie-offs (5 V, GND) or its
-  5 V outputs; left in, 5 V reaches the ESP32 (GPIO12 is USB D−, and one
-  board was lost this way). USB still works without them.
+- No ENA: this servo's enable input needs 24 V, and this setup has nothing
+  above 5 V, so it isn't used. Set **Pn003 = 1** (the drive enables itself
+  at power-up) and leave CN2 6, 9 and 10 unconnected.
+- The 74HCT125's OE pins (4 and 10) are tied to GND, so STEP and DIR are
+  always passed through.
+- **Before fitting the DevKit, cut its header pins 1, 2, 3, 9, 10, 12, 13
+  and 19.** Their breadboard strips carry the 74HCT125's tie-offs (5 V,
+  GND) or its 5 V outputs. 5 V reaches the ESP32 otherwise (GPIO12 is USB
+  D−, and one board was lost this way), and a grounded GPIO9 holds the BOOT
+  pin low, so the chip starts in download mode and looks dead. USB still
+  works without them.
 
 ### Bench debugging without a display
 
@@ -74,10 +78,10 @@ Logs go to USB-Serial-JTAG, which leaves both UARTs free.
 cargo run --release --features bench
 ```
 
-Starts the hotspot at power-up, logs all Nextion UART traffic
-(`nextion tx:` / `nextion rx:`), and repeats a jog sequence (tap right, tap
-left, 2 s hold right, 2 s hold left) so STEP and DIR can be scoped. ENA stays
-enabled.
+Logs all Nextion UART traffic (`nextion tx:` / `nextion rx:`) and repeats a
+jog sequence (tap right, tap left, 2 s hold right, 2 s hold left) so STEP and
+DIR can be scoped. It doesn't start the hotspot: setup mode
+locks out jogging (add `setup-on-boot` for that separately).
 
 ### Hardware-in-the-loop tests
 

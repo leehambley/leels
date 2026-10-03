@@ -59,7 +59,7 @@ use esp_hal::pcnt::{channel, unit::Unit, Pcnt};
 use esp_hal::rmt::{self, PulseCode, Rmt, TxChannelConfig, TxChannelCreator};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::uart::{self, Uart, UartTx};
+use esp_hal::uart::{self, Uart};
 use esp_hal::Async;
 use esp_println::println;
 use esp_rtos::embassy::InterruptExecutor;
@@ -72,6 +72,9 @@ static KEYS: Channel<CriticalSectionRawMutex, Key, 16> = Channel::new();
 /// Bytes from the display, parsed into touch events by `touch_task`. Filled
 /// from the Nextion UART, or from USB in `hil` builds.
 static NEXTION_RX: Pipe<CriticalSectionRawMutex, 128> = Pipe::new();
+/// Bytes for the display, written to the UART by `display_task`. Big enough
+/// for a full refresh queued while the display boots.
+static NEXTION_TX: Pipe<CriticalSectionRawMutex, 1024> = Pipe::new();
 static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::new(Status {
     engaged: false,
     syncing: false,
@@ -106,7 +109,7 @@ struct MotionHw {
     step_counter: hil::StepCounter,
     dir: Flex<'static>,
     // Held so the pins stay configured.
-    _enable: Output<'static>,
+    _enable: Option<Output<'static>>,
     _encoder_a: Input<'static>,
     _encoder_b: Input<'static>,
 }
@@ -138,13 +141,8 @@ async fn main(spawner: Spawner) {
         (config::DEFAULTS, Origin::FirstBoot, None)
     };
     println!("settings: {:?}", origin);
-    // The breadboard wiring fixes ENA's polarity (the buffer's OE is active
-    // low), whatever was saved.
     #[cfg(feature = "breadboard")]
-    let settings = {
-        println!("BREADBOARD BUILD: STEP 18, DIR 8, ENA 9 (active low), encoder 21/15");
-        Settings { invert_enable: true, ..settings }
-    };
+    println!("BREADBOARD BUILD: STEP 18, DIR 8, no ENA (servo enables itself), encoder 21/15");
     setup::CURRENT.lock(|c| c.set(Some(settings)));
 
     // Mutable for the breadboard build's boot rainbow, which borrows RMT and DIR.
@@ -156,11 +154,6 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "breadboard")]
     #[allow(clippy::forget_non_drop)]
     core::mem::forget(Output::new(p.GPIO17, Level::High, OutputConfig::default()));
-    // Breadboard build: GPIO11 switches the servo on (SigIn1, through an NPN
-    // with a base pull-down), so the drive stays off until the firmware runs.
-    #[cfg(feature = "breadboard")]
-    #[allow(clippy::forget_non_drop)]
-    core::mem::forget(Output::new(p.GPIO11, Level::High, OutputConfig::default()));
 
     // Spindle encoder: count both edges of A, direction from B (2 counts per line).
     // Open-drain encoder: the internal pull-ups supply the high level.
@@ -182,24 +175,21 @@ async fn main(spawner: Spawner) {
     unit.resume();
 
     let enabled = if settings.invert_enable { Level::Low } else { Level::High };
-    #[allow(unused_mut)]
-    let mut enable = Output::new(pins.enable, enabled, OutputConfig::default());
+    let enable = pins.enable.map(|pin| Output::new(pin, enabled, OutputConfig::default()));
+    // STEP idles inactive from here on, before the motion task takes it over.
+    let step = Output::new(pins.step, step_levels(&settings).1, OutputConfig::default()).into_flex();
     // Breadboard build: GPIO8 is DIR, so the LED only gets a boot rainbow (on
-    // a short-lived RMT driver, before the motion task takes RMT), with ENA
-    // (the buffer's OE) held off so DIR's strip can toggle harmlessly.
+    // a short-lived RMT driver, before the motion task takes RMT). DIR
+    // toggles meanwhile, which is harmless with STEP held idle.
     #[cfg(feature = "breadboard")]
     {
-        enable.set_level(!enabled);
         let rmt = Rmt::new(p.RMT.reborrow(), Rate::from_mhz(config::RMT_SOURCE_MHZ)).unwrap().into_async();
         let mut led = rmt.channel1.configure_tx(pins.dir.reborrow(), led::tx_config()).unwrap();
         led::boot_rainbow(&mut led, 1_500).await;
-        drop(led);
-        enable.set_level(enabled);
     }
     // Normal build: the LED task joins in once the motion task has set up RMT.
     #[cfg(all(feature = "esp32c6", not(feature = "breadboard")))]
     spawner.spawn(led::rainbow_task(p.GPIO8)).unwrap();
-    let step = Flex::new(pins.step);
     // Flex so the hil build can read the pin back as well.
     let dir = Output::new(pins.dir, Level::Low, OutputConfig::default()).into_flex();
     #[cfg(feature = "hil")]
@@ -221,44 +211,17 @@ async fn main(spawner: Spawner) {
     let motion_spawner = motion_executor.start(Priority::Priority3);
     motion_spawner.spawn(motion_task(hw, settings)).unwrap();
 
-    let uart_config = uart::Config::default().with_baudrate(config::NEXTION_BOOT_BAUD);
-    let mut uart = Uart::new(p.UART1, uart_config).unwrap().with_tx(pins.nextion_tx).with_rx(pins.nextion_rx);
-    // Wait for the display to boot, then move it from the HMI's rate to ours.
-    // If it's already at ours (only the ESP32 restarted, e.g. leaving setup),
-    // this arrives as noise and is ignored.
-    Timer::after_millis(config::NEXTION_BOOT_MS).await;
-    let mut cmd: heapless::Vec<u8, 32> = heapless::Vec::new();
-    let _ = nextion::encode_baud(&mut cmd, config::NEXTION_BAUD);
-    #[cfg(feature = "nextion-log")]
-    log_nextion("tx", &cmd);
-    let mut pending = &cmd[..];
-    while !pending.is_empty() {
-        match uart.write(pending) {
-            Ok(n) => pending = &pending[n..],
-            Err(e) => {
-                println!("nextion tx error: {:?}", e);
-                break;
-            }
-        }
-    }
-    let _ = uart.flush();
-    // The display switches once the command is complete; give it a moment.
-    Timer::after_millis(50).await;
-    uart.apply_config(&uart_config.with_baudrate(config::NEXTION_BAUD)).unwrap();
-    let (rx, tx) = uart.into_async().split();
-    // In `hil` builds the tests type into USB instead; the unconnected UART
-    // RX line picks up noise that would corrupt their touch events.
-    #[cfg(not(feature = "hil"))]
-    spawner.spawn(uart_rx_task(rx)).unwrap();
+    let uart_config = uart::Config::default().with_baudrate(config::NEXTION_BAUD);
+    let uart = Uart::new(p.UART1, uart_config).unwrap().with_tx(pins.nextion_tx).with_rx(pins.nextion_rx).into_async();
+    spawner.spawn(display_task(uart)).unwrap();
     #[cfg(feature = "hil")]
     {
-        drop(rx);
         let (usb_rx, _) = esp_hal::usb_serial_jtag::UsbSerialJtag::new(p.USB_DEVICE).into_async().split();
         spawner.spawn(hil::usb_rx_task(usb_rx)).unwrap();
         spawner.spawn(hil::report_task()).unwrap();
     }
     spawner.spawn(touch_task()).unwrap();
-    spawner.spawn(ui_task(tx, settings, origin, store, operator_state)).unwrap();
+    spawner.spawn(ui_task(settings, origin, store, operator_state)).unwrap();
     spawner.spawn(setup::setup_task(spawner, p.WIFI)).unwrap();
     #[cfg(feature = "bench")]
     spawner.spawn(bench_task()).unwrap();
@@ -537,9 +500,9 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
             if now - enc_log.0 >= 500_000 {
                 let t0 = Instant::now().as_micros();
                 println!(
-                    "encoder: A {:?} B {:?} sw edges A {} B {} | pcnt raw {} pos {} | rpm {} | gpio in {:08x} toggled {:08x} | lp in {:02x} | z steps {} dir {:?} pad {:?} jog {:?} | engaged {} syncing {} max lag {} | max loop {} us, last print {} us",
+                    "encoder: A {:?} B {:?} sw edges A {} B {} | pcnt raw {} pos {} | rpm {} | gpio in {:08x} toggled {:08x} | lp in {:02x} | z steps {} dir {:?} pad {:?} ena {:?} jog {:?} | engaged {} syncing {} max lag {} | max loop {} us, last print {} us",
                     a, b, enc_log.3, enc_log.4, raw, spindle.pos, rpm, gpio_in, gpio_toggled, lp_in(),
-                    stepgen.pos(), hw.dir.output_level(), hw.dir.level(), jog.view(backlash.carriage(stepgen.pos()), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now),
+                    stepgen.pos(), hw.dir.output_level(), hw.dir.level(), hw._enable.as_ref().map(|e| e.output_level()), jog.view(backlash.carriage(stepgen.pos()), Bounds::new(gearbox.stop(Side::Right), gearbox.stop(Side::Left)), now),
                     gearbox.engaged(), gearbox.syncing(), max_lag, max_dt, print_us
                 );
                 print_us = Instant::now().as_micros() - t0;
@@ -578,27 +541,83 @@ async fn motion_task(mut hw: MotionHw, settings: Settings) {
     }
 }
 
-#[cfg(not(feature = "hil"))]
+/// Owns the display UART: passes received bytes to `touch_task`, sends what
+/// the UI queued in `NEXTION_TX`, and moves the display from the HMI's rate
+/// to ours, once after it has booted and then every `NEXTION_RESYNC_MS`
+/// while nothing moves. That brings back a display that rebooted on its own
+/// (a supply glitch) and is listening at the HMI's rate again. The handshake
+/// briefly runs the link at the HMI's rate, so touches in that window are
+/// lost: never while jogging or engaged, so a jog release can't be missed.
 #[embassy_executor::task]
-async fn uart_rx_task(mut rx: uart::UartRx<'static, Async>) {
-    let mut buf = [0u8; 32];
+async fn display_task(mut uart: Uart<'static, Async>) {
+    Timer::after_millis(config::NEXTION_BOOT_MS).await;
+    nextion_handshake(&mut uart).await;
+    let mut rx_buf = [0u8; 32];
+    let mut tx_buf = [0u8; 64];
     // An idle or unconnected RX line can glitch continuously: log errors at most once a second.
     let mut errors = 0u32;
     let mut last_error_log: Option<Instant> = None;
+    let mut next_resync = Instant::now() + Duration::from_millis(config::NEXTION_RESYNC_MS);
     loop {
-        let n = match rx.read_async(&mut buf).await {
-            Ok(n) => n,
-            Err(e) => {
+        match select3(uart.read_async(&mut rx_buf), NEXTION_TX.read(&mut tx_buf), Timer::at(next_resync)).await {
+            // In `hil` builds the tests type into USB instead; the unconnected
+            // UART RX line picks up noise that would corrupt their touch events.
+            Either3::First(Ok(n)) => {
+                if !cfg!(feature = "hil") {
+                    NEXTION_RX.write_all(&rx_buf[..n]).await;
+                }
+            }
+            Either3::First(Err(e)) => {
                 errors += 1;
                 if last_error_log.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
                     println!("nextion rx error: {:?} ({} in the last second)", e, errors);
                     errors = 0;
                     last_error_log = Some(Instant::now());
                 }
-                continue;
             }
-        };
-        NEXTION_RX.write_all(&buf[..n]).await;
+            Either3::Second(n) => uart_write(&mut uart, &tx_buf[..n]).await,
+            Either3::Third(()) => {
+                next_resync = Instant::now() + Duration::from_millis(config::NEXTION_RESYNC_MS);
+                let status = STATUS.lock(|s| s.get());
+                if !status.engaged && !status.syncing && !status.jogging {
+                    nextion_handshake(&mut uart).await;
+                }
+            }
+        }
+    }
+}
+
+/// Send `baud=` at the HMI's rate, then switch to ours. A display already at
+/// ours sees noise and ignores it.
+async fn nextion_handshake(uart: &mut Uart<'static, Async>) {
+    let boot = uart::Config::default().with_baudrate(config::NEXTION_BOOT_BAUD);
+    let _ = uart.flush_async().await;
+    if let Err(e) = uart.apply_config(&boot) {
+        println!("nextion: baud change failed: {:?}", e);
+        return;
+    }
+    let mut cmd: heapless::Vec<u8, 32> = heapless::Vec::new();
+    let _ = nextion::encode_baud(&mut cmd, config::NEXTION_BAUD);
+    uart_write(uart, &cmd).await;
+    let _ = uart.flush_async().await;
+    // The display switches once the command is complete; give it a moment.
+    Timer::after_millis(50).await;
+    if let Err(e) = uart.apply_config(&boot.with_baudrate(config::NEXTION_BAUD)) {
+        println!("nextion: baud change failed: {:?}", e);
+    }
+}
+
+async fn uart_write(uart: &mut Uart<'static, Async>, mut bytes: &[u8]) {
+    #[cfg(feature = "nextion-log")]
+    log_nextion("tx", bytes);
+    while !bytes.is_empty() {
+        match uart.write_async(bytes).await {
+            Ok(n) => bytes = &bytes[n..],
+            Err(e) => {
+                println!("nextion tx error: {:?}", e);
+                return;
+            }
+        }
     }
 }
 
@@ -620,7 +639,6 @@ async fn touch_task() {
 
 #[embassy_executor::task]
 async fn ui_task(
-    mut tx: UartTx<'static, Async>,
     settings: Settings,
     origin: Origin,
     mut store: storage::Store,
@@ -638,10 +656,10 @@ async fn ui_task(
         setup::START.signal(());
     }
 
-    // (main waited for the display to boot before switching its baud rate.)
+    // (display_task sends this once it has moved the display to our baud rate.)
     // The display keeps its state when only the ESP32 restarts (e.g. leaving
     // setup), so put back the HMI's colours and touch settings first.
-    write_all(&mut tx, nextion::RELOAD_PAGE).await;
+    write_all(nextion::RELOAD_PAGE).await;
     #[cfg(feature = "hil")]
     println!("hil: ready");
     let boot_ms = Instant::now().as_millis();
@@ -676,7 +694,7 @@ async fn ui_task(
                     Timer::after_micros(2 * config::SEGMENT_US as u64).await;
                 }
                 if out.beep {
-                    write_all(&mut tx, nextion::BEEP).await;
+                    write_all(nextion::BEEP).await;
                 }
                 match out.action {
                     Some(Action::StartSetup) => setup::START.signal(()),
@@ -729,7 +747,7 @@ async fn ui_task(
             // Up to 40 characters of UTF-8 plus the name and syntax.
             let mut cmd: heapless::Vec<u8, 160> = heapless::Vec::new();
             if nextion::encode_text(&mut cmd, FIELDS[i], text).is_ok() {
-                write_all(&mut tx, &cmd).await;
+                write_all(&cmd).await;
             }
         }
         shown = Some(fields);
@@ -743,7 +761,7 @@ async fn ui_task(
             if nextion::encode_num(&mut cmd, COLOUR_FIELDS[i], "bco", bco.into()).is_ok()
                 && nextion::encode_num(&mut cmd, COLOUR_FIELDS[i], "pco", pco.into()).is_ok()
             {
-                write_all(&mut tx, &cmd).await;
+                write_all(&cmd).await;
             }
         }
         shown_colours = Some(colours);
@@ -762,23 +780,14 @@ async fn ui_task(
                 if !ok {
                     println!("nextion: lock command for {} too long", name);
                 }
-                write_all(&mut tx, &cmd).await;
+                write_all(&cmd).await;
             }
             locked = true;
         }
     }
 }
 
-async fn write_all(tx: &mut UartTx<'static, Async>, mut bytes: &[u8]) {
-    #[cfg(feature = "nextion-log")]
-    log_nextion("tx", bytes);
-    while !bytes.is_empty() {
-        match tx.write_async(bytes).await {
-            Ok(n) => bytes = &bytes[n..],
-            Err(e) => {
-                println!("nextion tx error: {:?}", e);
-                return;
-            }
-        }
-    }
+/// Queue bytes for the display (sent by `display_task`).
+async fn write_all(bytes: &[u8]) {
+    NEXTION_TX.write_all(bytes).await;
 }

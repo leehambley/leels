@@ -4,7 +4,7 @@
 //! Normal build: a slow rainbow from a thread-executor task for as long as the
 //! firmware runs; if the firmware hangs, the colour freezes. Breadboard build:
 //! GPIO8 is DIR there, so the rainbow only plays for a moment at boot, with
-//! the buffer's outputs held off, before the pin becomes DIR.
+//! STEP held idle, before the pin becomes DIR.
 
 use embassy_time::{Instant, Timer};
 use esp_hal::gpio::Level;

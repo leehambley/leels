@@ -13,7 +13,8 @@ pub struct Pins {
     pub encoder_b: esp_hal::gpio::AnyPin<'static>,
     pub step: esp_hal::gpio::AnyPin<'static>,
     pub dir: esp_hal::gpio::AnyPin<'static>,
-    pub enable: esp_hal::gpio::AnyPin<'static>,
+    /// Driver enable, if the build has one.
+    pub enable: Option<esp_hal::gpio::AnyPin<'static>>,
     pub nextion_tx: esp_hal::gpio::AnyPin<'static>,
     pub nextion_rx: esp_hal::gpio::AnyPin<'static>,
 }
@@ -26,7 +27,7 @@ pub struct Pins {
 ///
 /// S2-SVD servo: STEP/DIR sink the drive's opto inputs directly, no level
 /// shifter: CN2 PP+ (3) and PD+ (4) to 3V3, PP- (14) to STEP, PD- (5) to DIR,
-/// GND (1) to GND. ENA is unused (the drive's enable is a 12-24 V input): set
+/// GND (1) to GND. ENA is unused (the drive's enable needs 24 V): set
 /// Pn003 = 1 so the drive enables itself at power-up.
 ///
 /// Drive tuning on this machine: Fn018 inertia ratio ~1.5 (hands off the
@@ -41,7 +42,7 @@ macro_rules! take_pins {
             encoder_b: esp_hal::gpio::Pin::degrade($p.GPIO11),
             step: esp_hal::gpio::Pin::degrade($p.GPIO18),
             dir: esp_hal::gpio::Pin::degrade($p.GPIO19),
-            enable: esp_hal::gpio::Pin::degrade($p.GPIO20),
+            enable: Some(esp_hal::gpio::Pin::degrade($p.GPIO20)),
             nextion_tx: esp_hal::gpio::Pin::degrade($p.GPIO22),
             nextion_rx: esp_hal::gpio::Pin::degrade($p.GPIO23),
         }
@@ -59,20 +60,21 @@ macro_rules! take_pins {
 /// | 14 VCC | 5V       | supply, 100 nF to pin 7                        |
 /// | 5  2A  | GPIO18   | STEP in                                        |
 /// | 6  2Y  | GPIO19   | STEP out to CN2 14 (PP-); cut DevKit pin 19    |
-/// | 4  2OE | GPIO9    | ENA, active low (BOOT strap: high during reset,|
-/// |        |          | so the outputs are off while the chip boots)   |
+/// | 4  2OE | GPIO9    | tied to GND (always on); cut DevKit pin 9      |
 /// | 9  3A  | GPIO8    | DIR in                                         |
 /// | 8  3Y  | GPIO1    | DIR out to CN2 5 (PD-); cut DevKit pin 1       |
-/// | 10 3OE | GPIO10   | jumpered to the GPIO9 strip; GPIO10 unused     |
+/// | 10 3OE | GPIO10   | tied to GND (always on); cut DevKit pin 10     |
 /// | 7  GND | GPIO20   | jumpered to a G pin; GPIO20 unused (never      |
 /// |        |          | driven: it's ground now)                       |
 /// | 1, 13  | 12, 3    | tied to pin 14 (channels 1, 4 off)             |
 /// | 2, 12  | 13, 2    | tied to GND                                    |
 /// | 3, 11  | G, 11    | cut off                                        |
 ///
-/// Cut the DevKit's header pins 1, 2, 3, 12, 13 and 19 before fitting it:
-/// their strips carry 5 V, GND or the buffer's 5 V outputs, and 5 V on
-/// GPIO12 (USB D-) killed a board. USB doesn't need the header pins.
+/// Cut the DevKit's header pins 1, 2, 3, 9, 10, 12, 13 and 19 before fitting
+/// it: their strips carry 5 V, GND or the buffer's 5 V outputs. 5 V on
+/// GPIO12 (USB D-) killed a board, and GPIO9 grounded is the BOOT strap
+/// held low, so the chip starts in download mode and looks dead. USB
+/// doesn't need the header pins.
 /// Servo-side wiring and wire colours: README, "Breadboard build: servo
 /// wiring", and docs/images/cn2-wiring.svg.
 ///
@@ -81,12 +83,9 @@ macro_rules! take_pins {
 /// with its own 4.7k pull-up to GPIO17 (the RX pin), which the firmware
 /// holds high as a 3.3 V supply on the J3 side (about 1.4 mA).
 ///
-/// Servo enable (optional, needs the drive's 12-24 V input supply, so not
-/// used on a 5 V-only build: set Pn003 = 1 instead and leave CN2 6, 9 and 10
-/// open): GPIO11 (its strip is free once IC pin 11 is cut)
-/// goes high once the firmware runs. Through 1-1.5k into a 2N3904 base (10k
-/// base to GND): collector to CN2 6 (SigIn1), emitter to CN2 10 (COM) and
-/// GND, CN2 9 to the input supply. Set Pn003 = 0 to use it. ENA is forced active-low (`invert_enable`).
+/// No ENA: the S2-SVD's enable input (CN2 6, SigIn1) needs its 24 V I/O
+/// supply, which this 5 V-only setup doesn't have, so it isn't used. Set
+/// Pn003 = 1 and the drive enables itself at power-up.
 #[cfg(all(feature = "esp32c6", feature = "breadboard"))]
 macro_rules! take_pins {
     ($p:ident) => {
@@ -95,7 +94,7 @@ macro_rules! take_pins {
             encoder_b: esp_hal::gpio::Pin::degrade($p.GPIO15),
             step: esp_hal::gpio::Pin::degrade($p.GPIO18),
             dir: esp_hal::gpio::Pin::degrade($p.GPIO8),
-            enable: esp_hal::gpio::Pin::degrade($p.GPIO9),
+            enable: None,
             nextion_tx: esp_hal::gpio::Pin::degrade($p.GPIO22),
             nextion_rx: esp_hal::gpio::Pin::degrade($p.GPIO23),
         }
@@ -114,7 +113,7 @@ macro_rules! take_pins {
             encoder_b: esp_hal::gpio::Pin::degrade($p.GPIO14),
             step: esp_hal::gpio::Pin::degrade($p.GPIO35),
             dir: esp_hal::gpio::Pin::degrade($p.GPIO42),
-            enable: esp_hal::gpio::Pin::degrade($p.GPIO41),
+            enable: Some(esp_hal::gpio::Pin::degrade($p.GPIO41)),
             nextion_tx: esp_hal::gpio::Pin::degrade($p.GPIO43),
             nextion_rx: esp_hal::gpio::Pin::degrade($p.GPIO44),
         }
@@ -152,8 +151,7 @@ pub const DEFAULTS: Settings = Settings {
     max_pitch_du: 254_000,
     // Driver signals. STEP idles high and pulses low on the NanoEls H5.
     invert_dir: false,
-    // The breadboard build gates the buffer's active-low OE with ENA.
-    invert_enable: cfg!(feature = "breadboard"),
+    invert_enable: false,
     step_active_low: true,
     step_pulse_ns: 2_500,
     dir_setup_ns: 10_000,
@@ -199,6 +197,9 @@ pub const NEXTION_BOOT_BAUD: u32 = 9_600;
 pub const NEXTION_BAUD: u32 = 115_200;
 /// Nextion needs time to boot before it accepts commands.
 pub const NEXTION_BOOT_MS: u64 = 1_300;
+/// Repeat the baud handshake this often while idle, so a display that
+/// rebooted on its own (back at `NEXTION_BOOT_BAUD`) is brought back.
+pub const NEXTION_RESYNC_MS: u64 = 3_000;
 pub const DISPLAY_REFRESH_MS: u64 = 100;
 /// Resend every field periodically in case the display was power-cycled.
 pub const DISPLAY_FULL_REFRESH_MS: u64 = 5_000;
