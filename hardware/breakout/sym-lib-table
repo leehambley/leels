@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+
+  (lib (name "leels") (type "KiCad") (uri "${KIPRJMOD}/leels.kicad_sym") (options "") (descr "")))
