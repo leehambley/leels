@@ -1,2 +1,7 @@
 target/
 .DS_Store
+
+# KiCad local history and per-user state
+.history/
+*.kicad_prl
+*-backups/
