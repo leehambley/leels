@@ -42,7 +42,7 @@
 					(justify left)
 				)
 			)
-			(property "Footprint" "PCM_Espressif:ESP32-C6-DevKitC-1"
+			(property "Footprint" "leels:ESP32-C6-DevKitC-1_Sockets"
 				(at 0 -25.4 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -4181,7 +4181,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "PCM_Espressif:ESP32-C6-DevKitC-1"
+		(property "Footprint" "leels:ESP32-C6-DevKitC-1_Sockets"
 			(at 127 101.6 0)
 			(hide yes)
 			(effects
@@ -4907,7 +4907,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Package_TO_SOT_THT:TO-92_Inline"
+		(property "Footprint" "Package_TO_SOT_THT:TO-92_Inline_Wide"
 			(at 223.52 88.9 0)
 			(hide yes)
 			(effects
