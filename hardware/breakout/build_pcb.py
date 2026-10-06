@@ -25,7 +25,7 @@ LIBS = {
 # Board: DevKit pin 1 at (14, 10); its PCB spans x 12.5..38.4, y 8.4..60.2
 # (antenna beyond the top edge, so no copper under it). Terminals on the
 # left and right edges, the 5 V-in diode below the DevKit.
-BOARD = (0.0, 8.4, 51.0, 72.0)
+BOARD = (0.0, 8.4, 51.0, 78.5)
 
 # reference: (x, y, rotation) of pad 1. Terminals are turned so their
 # wire openings face the board edge (270 on the left, 90 on the right),
@@ -40,25 +40,38 @@ PLACE = {
     "J5": (46.0, 27.66, 90),  # Nextion: pin 4 (RX) at the top
     "J2": (45.5, 55.32, 90),  # servo, bottom to top: 5V STEP DIR ENA GND
     "J4": (45.5, 67.08, 90),  # 5 V in, bottom to top: +5V GND
-    "Q1": (24.1, 13.0, 0),
-    "R1": (33.0, 17.0, 180),
-    "R2": (25.38, 20.5, 180),
+    # ENA: Q1 lies flat (body towards the board's middle), R1/R2 around it.
+    "Q1": (26.0, 11.2, 0),
+    "R1": (26.0, 22.2, 0),
+    "R2": (32.5, 19.0, 90),
+    # Encoder: 220R series resistors upright beside the left socket row...
+    "R8": (17.6, 30.62, 90),
+    "R9": (20.9, 30.62, 90),
+    "R10": (17.6, 40.62, 90),
+    # ...and the 220p filter caps in the bottom-left corner, below the DevKit.
+    "C3": (13.5, 62.8, 0),
+    "C4": (13.5, 66.1, 0),
+    "C5": (13.5, 69.4, 0),
+    "J7": (40.5, 12.0, 90),   # Nextion, Dupont: 5V GND RX TX left to right
     "R3": (16.8, 52.0, 0),
     "R4": (16.8, 55.5, 0),
     "R7": (16.8, 59.0, 0),
     "R5": (27.0, 52.0, 0),
     "R6": (27.0, 55.5, 0),
-    # Capacitors are too tall for under the DevKit: below it, by the 5 V in.
-    "C1": (21.0, 63.5, 0),
+    # C1 (axial, flat) decouples U2 right at its supply pin; C2 is too tall
+    # for under the DevKit, so it sits below it, by the 5 V in.
+    "C1": (24.5, 44.2, 0),
     "C2": (31.8, 63.5, 0),
     "D1": (25.0, 69.0, 0),
 }
 
 
 # Ground stitching vias, in spots the parts leave free.
-STITCH = [(2.0, 10.0), (49.0, 10.0), (2.0, 70.0), (49.0, 70.5), (11.5, 66.0),
-          (39.0, 66.0), (21.0, 24.0), (21.0, 40.0), (35.0, 59.0), (12.0, 47.0),
-          (16.6, 47.2), (49.6, 24.0)]
+STITCH = [(2.0, 10.0), (49.0, 10.0), (12.0, 76.5), (39.0, 76.5),
+          (39.0, 66.0), (35.0, 59.0), (12.0, 47.0), (16.6, 47.2), (49.6, 24.0)]
+
+# M3 mounting holes (non-plated), board-only parts.
+HOLES = [(5.5, 13.5), (5.5, 74.4), (45.5, 74.4)]
 
 
 # Connector pin labels on the silkscreen, by pad number, in the strip between
@@ -75,7 +88,7 @@ TITLES = [
     ("SHIELD", 11.8, 56.1, 90),
     ("SERVO", 39.1, 30.6, 90),
     ("5V IN", 39.1, 71.0, 0),
-    ("NEXTION", 46.0, 15.4, 0),
+    ("NEXTION", 46.0, 16.4, 0),
 ]
 
 
@@ -195,8 +208,22 @@ def main(netlist):
             silk(board, text, col, y, 0 if ref == "J5" else 90)
     for text, x, y, rot in TITLES:
         silk(board, text, x, y, rot)
-    silk(board, "leels breakout rev A", 19.0, 35.0, 90, layer=pcbnew.B_SilkS)
-    silk(board, "DevKitC-1 on top, USB down", 21.2, 35.0, 90, layer=pcbnew.B_SilkS)
+    # J7's pins run left to right: labels underneath.
+    j7 = board.FindFootprintByReference("J7")
+    for pad in j7.Pads():
+        x = pcbnew.ToMM(pad.GetPosition().x)
+        silk(board, ["5V", "GND", "RX", "TX"][int(pad.GetNumber()) - 1], x, 14.4, 0)
+    j7.Reference().SetLayer(pcbnew.F_Fab)
+    silk(board, "leels breakout rev A", 25.5, 74.2, 0, layer=pcbnew.B_SilkS)
+    silk(board, "DevKitC-1 on top, USB down", 25.5, 76.4, 0, layer=pcbnew.B_SilkS)
+    for i, (hx, hy) in enumerate(HOLES, 1):
+        hole = load_fp("MountingHole:MountingHole_3.2mm_M3")
+        hole.SetReference(f"H{i}")
+        hole.SetPosition(pcbnew.VECTOR2I(mm(hx), mm(hy)))
+        hole.SetBoardOnly(True)
+        hole.SetExcludedFromBOM(True)
+        hole.Reference().SetLayer(pcbnew.F_Fab)
+        board.Add(hole)
     # Connector titles say what each one is; their references would sit on
     # the pin labels.
     for ref in PIN_LABELS:

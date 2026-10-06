@@ -42,7 +42,7 @@
 					(justify left)
 				)
 			)
-			(property "Footprint" "leels:ESP32-C6-DevKitC-1_Sockets"
+			(property "Footprint" "PCM_Espressif:ESP32-C6-DevKitC-1"
 				(at 0 -25.4 0)
 				(show_name no)
 				(do_not_autoplace no)
@@ -3660,6 +3660,39 @@
 		(diameter 0)
 		(uuid "77f2ff5d-14b3-40e9-b3b6-1815b1502f3f")
 	)
+	(junction
+		(at 67.31 111.76)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "5888151f-5a8c-4531-b0ec-86206f979e13")
+	)
+	(junction
+		(at 91.44 106.68)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "30b289dd-043d-4150-8345-28d9bd32b4e5")
+	)
+	(junction
+		(at 91.44 109.22)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "229fb553-2185-4cb9-9c8d-4e645687b8a6")
+	)
+	(junction
+		(at 43.18 139.7)
+		(diameter 0)
+		(uuid "3a9fc2ff-e395-476f-a36e-716a4199948f")
+	)
+	(junction
+		(at 162.56 78.74)
+		(diameter 0)
+		(uuid "728b65ce-cab1-495c-a530-74209515dc8d")
+	)
+	(junction
+		(at 160.02 76.2)
+		(diameter 0)
+		(uuid "711faa65-21f3-45bf-96f1-f85c7a7ba7fc")
+	)
 	(no_connect
 		(at 101.6 86.36)
 		(uuid "940b1001-60d1-493c-9155-651233c23709")
@@ -3923,13 +3956,6 @@
 	)
 	(wire
 		(pts
-			(xy 38.1 106.68)
-			(xy 86.36 106.68)
-		)
-		(uuid "e7439534-5fc0-454f-b479-c60484fc42d7")
-	)
-	(wire
-		(pts
 			(xy 86.36 106.68)
 			(xy 101.6 106.68)
 		)
@@ -3937,24 +3963,10 @@
 	)
 	(wire
 		(pts
-			(xy 38.1 109.22)
-			(xy 86.36 109.22)
-		)
-		(uuid "5066621a-0584-4dc5-b446-1d8464b0b534")
-	)
-	(wire
-		(pts
 			(xy 86.36 109.22)
 			(xy 101.6 109.22)
 		)
 		(uuid "e7ade212-fb92-41a4-9cde-26d423d5bee2")
-	)
-	(wire
-		(pts
-			(xy 38.1 111.76)
-			(xy 63.5 111.76)
-		)
-		(uuid "6027faf9-33f0-44d8-8e22-20c7b6459c81")
 	)
 	(wire
 		(pts
@@ -4103,6 +4115,157 @@
 		)
 		(uuid "96b6f364-7fcc-4adb-87f5-04d9a9eb18e4")
 	)
+	(wire
+		(pts
+			(xy 38.1 106.68)
+			(xy 46.99 106.68)
+		)
+		(uuid "0bd782dc-7eb6-4419-b10a-3ace88bb5f77")
+	)
+	(wire
+		(pts
+			(xy 54.61 106.68)
+			(xy 86.36 106.68)
+		)
+		(uuid "8b30a588-a903-46ee-a074-db7f3fce1a95")
+	)
+	(wire
+		(pts
+			(xy 38.1 109.22)
+			(xy 54.61 109.22)
+		)
+		(uuid "c334548d-7955-4e57-b3af-afa7a3853bed")
+	)
+	(wire
+		(pts
+			(xy 62.23 109.22)
+			(xy 86.36 109.22)
+		)
+		(uuid "a870a8fb-cba9-4c51-a497-1196c2fe0b83")
+	)
+	(wire
+		(pts
+			(xy 38.1 111.76)
+			(xy 46.99 111.76)
+		)
+		(uuid "881bb850-ff5f-4a84-841b-db6f43b3166d")
+	)
+	(wire
+		(pts
+			(xy 54.61 111.76)
+			(xy 63.5 111.76)
+		)
+		(uuid "517ae4e6-496f-46f0-946b-bc97540f9920")
+	)
+	(wire
+		(pts
+			(xy 43.18 139.7)
+			(xy 43.18 134.62)
+		)
+		(uuid "24289ff1-41a2-4c25-be74-c669607cbecd")
+	)
+	(wire
+		(pts
+			(xy 187.96 63.5)
+			(xy 187.96 68.58)
+		)
+		(uuid "b0954d79-402b-41f9-aa42-6e18518bbc29")
+	)
+	(wire
+		(pts
+			(xy 185.42 63.5)
+			(xy 185.42 66.04)
+		)
+		(uuid "6ad4529c-961a-45a4-86e6-d8c165f7e263")
+	)
+	(wire
+		(pts
+			(xy 182.88 63.5)
+			(xy 182.88 68.58)
+		)
+		(uuid "b839de36-b458-44a6-bc48-121054fc2a98")
+	)
+	(wire
+		(pts
+			(xy 180.34 63.5)
+			(xy 180.34 68.58)
+		)
+		(uuid "ef8ba0fd-6e50-4625-ad0a-e97c59e7a07f")
+	)
+	(wire
+		(pts
+			(xy 162.56 78.74)
+			(xy 167.64 78.74)
+		)
+		(uuid "b638d1a8-a2a4-488a-aa2a-184eae1384f5")
+	)
+	(wire
+		(pts
+			(xy 160.02 76.2)
+			(xy 157.48 76.2)
+		)
+		(uuid "aa6c73e9-89fc-44a9-a08e-8e7f12523609")
+	)
+	(text "Breakout for the ESP32-C6-DevKitC-1: plugs onto the back of the DevKit on two 1x16 sockets (rows 22.86 mm apart). All parts through-hole."
+		(at 30 22 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "301f8d46-7e74-4444-b868-bf52322957bd")
+	)
+	(text "Firmware: normal C6 pinout. STEP 18, DIR 19, ENA 20, encoder A 10 / B 11 (Z on 21, not read yet), Nextion TX 22 / RX 23."
+		(at 30 27 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "dc4c406b-f23b-4fba-9887-92308a0d7951")
+	)
+	(text "Servo: U2 drives the opto inputs from 5 V (servo PP+/PD+ to J2 5V, PP-/PD- to J2 STEP/DIR; active low, firmware 'STEP pulses low')."
+		(at 30 32 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "cfaa1f5c-bfc5-4e51-abd6-3b7e3e91b48a")
+	)
+	(text "R5/R6 keep STEP/DIR high (opto off) while the ESP32 boots. ENA (Q1, R1, R2) is optional: open collector to SigIn1, Pn003 = 0; else omit, Pn003 = 1."
+		(at 30 37 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "9b4ef781-951e-44fc-822a-8f646bc42fb4")
+	)
+	(text "Encoder: open-drain A/B/Z, 220R series + 4k7 pull-up to 3V3 + 220p to GND each, powered from J3 5V. J6: cable shields to GND at this end only. J4: 5 V in via D1. Nextion (J5/J7) takes 5V_IN ahead of D1, so it needs J4 power."
+		(at 30 42 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "73f808d3-b21d-418f-b0bc-070411b5b182")
+	)
+	(text "Power flags (ERC)"
+		(at 58 166 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "ef1d0794-ae3c-4fac-9b1a-f2b24b4c8628")
+	)
 	(global_label "ENC_Z"
 		(shape input)
 		(at 152.4 99.06 0)
@@ -4125,36 +4288,83 @@
 		)
 		(uuid "b80cf7d2-ed73-4ee6-ae47-797e843f4adb")
 	)
-  (text "Breakout for the ESP32-C6-DevKitC-1: plugs onto the back of the DevKit on two 1x16 sockets (rows 22.86 mm apart). All parts through-hole."
-    (at 30 22 0)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "301f8d46-7e74-4444-b868-bf52322957bd")
-  )
-  (text "Firmware: normal C6 pinout. STEP 18, DIR 19, ENA 20, encoder A 10 / B 11 (Z on 21, not read yet), Nextion TX 22 / RX 23."
-    (at 30 27 0)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "dc4c406b-f23b-4fba-9887-92308a0d7951")
-  )
-  (text "Servo: U2 drives the opto inputs from 5 V (servo PP+/PD+ to J2 5V, PP-/PD- to J2 STEP/DIR; active low, firmware 'STEP pulses low')."
-    (at 30 32 0)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "cfaa1f5c-bfc5-4e51-abd6-3b7e3e91b48a")
-  )
-  (text "R5/R6 keep STEP/DIR high (opto off) while the ESP32 boots. ENA (Q1, R1, R2) is optional: open collector to SigIn1, Pn003 = 0; else omit, Pn003 = 1."
-    (at 30 37 0)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "9b4ef781-951e-44fc-822a-8f646bc42fb4")
-  )
-  (text "Encoder: open-drain A/B/Z, 4k7 pull-ups to 3V3, powered from J3 5V. J6: cable shields to GND at this end only. J4: 5 V in via D1, safe with USB connected."
-    (at 30 42 0)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "73f808d3-b21d-418f-b0bc-070411b5b182")
-  )
-  (text "Power flags (ERC)"
-    (at 58 166 0)
-    (effects (font (size 1.27 1.27)) (justify left bottom))
-    (uuid "ef1d0794-ae3c-4fac-9b1a-f2b24b4c8628")
-  )
+	(global_label "5V_IN"
+		(shape passive)
+		(at 172.72 66.04 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "4411cd39-bb8e-4496-b86f-87aed9a2a967")
+	)
+	(global_label "5V_IN"
+		(shape passive)
+		(at 43.18 134.62 90)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "e9ef80a4-8f5c-41f0-a960-be69332dfb4e")
+	)
+	(global_label "5V_IN"
+		(shape passive)
+		(at 187.96 68.58 270)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "9c0a3623-1df4-4d48-90fb-4500eff25abb")
+	)
+	(global_label "NX_TX"
+		(shape input)
+		(at 182.88 68.58 270)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "43c2441d-ac79-4c1f-a3de-258da98a96f1")
+	)
+	(global_label "NX_RX"
+		(shape output)
+		(at 180.34 68.58 270)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "f8206f03-2050-4d40-9924-bfd7ab40c812")
+	)
+	(global_label "NX_TX"
+		(shape output)
+		(at 167.64 78.74 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "bb603e23-f9c1-45db-b2e2-0483c8a79649")
+	)
+	(global_label "NX_RX"
+		(shape input)
+		(at 157.48 76.2 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right)
+		)
+		(uuid "f7d566a4-0427-49b1-ac05-11c52e85bfda")
+	)
 	(symbol
 		(lib_id "PCM_Espressif:ESP32-C6-DevKitC-1")
 		(at 127 101.6 0)
@@ -4543,7 +4753,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Capacitor_THT:C_Disc_D5.0mm_W2.5mm_P5.00mm"
+		(property "Footprint" "Capacitor_THT:C_Axial_L3.8mm_D2.6mm_P7.50mm_Horizontal"
 			(at 203.2 147.32 0)
 			(hide yes)
 			(effects
@@ -4907,7 +5117,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Package_TO_SOT_THT:TO-92_Inline_Wide"
+		(property "Footprint" "Package_TO_SOT_THT:TO-92_W4.0mm_StaggerEven_Horizontal_FlatSideDown"
 			(at 223.52 88.9 0)
 			(hide yes)
 			(effects
@@ -7502,67 +7712,6 @@
 		)
 	)
 	(symbol
-		(lib_id "power:+5V")
-		(at 172.72 66.04 0)
-		(unit 1)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(uuid "7d975219-7b64-4c7f-bbef-c1e864d5c8eb")
-		(property "Reference" "#PWR020"
-			(at 172.72 69.85 0)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "+5V"
-			(at 172.72 62.484 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 172.72 66.04 0)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 172.72 66.04 0)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"+5V\""
-			(at 172.72 66.04 0)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(instances
-			(project "leels-breakout"
-				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
-					(reference "#PWR020")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:+3V3")
 		(at 63.5 172.72 0)
 		(unit 1)
@@ -7923,6 +8072,677 @@
 			(project "leels-breakout"
 				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
 					(reference "#FLG03")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 50.8 106.68 90)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "c935d67c-b6da-4ed1-8d21-9557e6fd5402")
+		(property "Reference" "R8"
+			(at 50.8 104.648 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "220"
+			(at 50.8 106.68 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+			(at 50.8 106.68 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 50.8 106.68 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 50.8 106.68 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "R8")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 58.42 109.22 90)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "571dfb97-6f71-47fd-a9f8-ceedf2a9e5d4")
+		(property "Reference" "R9"
+			(at 58.42 107.188 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "220"
+			(at 58.42 109.22 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+			(at 58.42 109.22 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 58.42 109.22 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 58.42 109.22 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "R9")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 50.8 111.76 90)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "110ef426-8a27-4aa6-b521-7d99ad397cec")
+		(property "Reference" "R10"
+			(at 50.8 109.728 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "220"
+			(at 50.8 111.76 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+			(at 50.8 111.76 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 50.8 111.76 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Resistor"
+			(at 50.8 111.76 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "R10")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 91.44 102.87 0)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "8ba9b08e-0b96-42a3-8257-dad378770ff3")
+		(property "Reference" "C3"
+			(at 92.075 100.33 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "220p"
+			(at 92.075 105.41 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_THT:C_Axial_L3.8mm_D2.6mm_P7.50mm_Horizontal"
+			(at 91.44 102.87 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 91.44 102.87 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 91.44 102.87 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "C3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 91.44 113.03 0)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "78e7c1fe-6488-4549-86f6-9ee5a9654e20")
+		(property "Reference" "C4"
+			(at 92.075 110.49 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "220p"
+			(at 92.075 115.57 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_THT:C_Axial_L3.8mm_D2.6mm_P7.50mm_Horizontal"
+			(at 91.44 113.03 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 91.44 113.03 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 91.44 113.03 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "C4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 67.31 115.57 0)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "beb70f9f-5e83-410e-bb91-22fda1eb127e")
+		(property "Reference" "C5"
+			(at 67.945 113.03 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "220p"
+			(at 67.945 118.11 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_THT:C_Axial_L3.8mm_D2.6mm_P7.50mm_Horizontal"
+			(at 67.31 115.57 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 67.31 115.57 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 67.31 115.57 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "C5")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Connector_Generic:Conn_01x04")
+		(at 185.42 58.42 90)
+		(mirror y)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "f49c54cf-82e8-4225-b90e-2c7e695d88b2")
+		(property "Reference" "J7"
+			(at 190.5 58.42 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "Nextion (Dupont)"
+			(at 177.8 58.42 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
+			(at 185.42 58.42 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 185.42 58.42 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Generic connector, single row, 01x04, script generated (kicad-library-utils/schlib/autogen/connector/)"
+			(at 185.42 58.42 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "J7")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 91.44 99.06 180)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "6811fdc9-5e08-4514-b751-88711920c936")
+		(property "Reference" "#PWR020"
+			(at 91.44 92.71 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "GND"
+			(at 91.44 95.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 91.44 99.06 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 91.44 99.06 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 91.44 99.06 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "#PWR020")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 91.44 116.84 0)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "ec6e233b-6cd7-463b-8af5-c35e780c4188")
+		(property "Reference" "#PWR038"
+			(at 91.44 123.19 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "GND"
+			(at 91.44 120.65 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 91.44 116.84 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 91.44 116.84 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 91.44 116.84 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "#PWR038")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 67.31 119.38 0)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "92f36709-ce59-4369-b638-00d75243398e")
+		(property "Reference" "#PWR039"
+			(at 67.31 125.73 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "GND"
+			(at 67.31 123.19 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 67.31 119.38 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 67.31 119.38 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 67.31 119.38 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "#PWR039")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 185.42 66.04 0)
+		(unit 1)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "7773494e-386e-4590-b43a-74e86e03387d")
+		(property "Reference" "#PWR040"
+			(at 185.42 72.39 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "GND"
+			(at 185.42 69.85 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 185.42 66.04 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 185.42 66.04 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 185.42 66.04 0)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "leels-breakout"
+				(path "/16719c85-f403-4bcb-bfa8-46d2b1277309"
+					(reference "#PWR040")
 					(unit 1)
 				)
 			)
