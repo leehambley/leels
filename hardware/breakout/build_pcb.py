@@ -28,17 +28,18 @@ LIBS = {
 BOARD = (0.0, 8.4, 51.0, 72.0)
 
 # reference: (x, y, rotation) of pad 1. Terminals are turned so their
-# wire openings face the board edge (90 on the left, 270 on the right). Parts under the DevKit are low
+# wire openings face the board edge (270 on the left, 90 on the right),
+# checked in a 3D render. Parts under the DevKit are low
 # (axial resistors flat, DIP without socket): the DevKit sits ~8.5 mm up on
 # its sockets.
 PLACE = {
     "U1": (14.0, 10.0, 0),
     "U2": (32.0, 40.48, 180),
-    "J3": (5.5, 43.02, 90),   # encoder, bottom to top: 5V GND A B Z
-    "J6": (5.5, 61.16, 90),   # shield GND
+    "J3": (5.5, 22.7, 270),   # encoder, top to bottom: 5V GND A B Z
+    "J6": (5.5, 51.0, 270),   # shield GND
     "J5": (46.0, 27.66, 90),  # Nextion: pin 4 (RX) at the top
-    "J2": (45.5, 35.0, 270),  # servo: 5V STEP DIR ENA GND
-    "J4": (45.5, 62.0, 270),  # 5 V in
+    "J2": (45.5, 55.32, 90),  # servo, bottom to top: 5V STEP DIR ENA GND
+    "J4": (45.5, 67.08, 90),  # 5 V in, bottom to top: +5V GND
     "Q1": (24.1, 13.0, 0),
     "R1": (33.0, 17.0, 180),
     "R2": (25.38, 20.5, 180),
@@ -56,7 +57,8 @@ PLACE = {
 
 # Ground stitching vias, in spots the parts leave free.
 STITCH = [(2.0, 10.0), (49.0, 10.0), (2.0, 70.0), (49.0, 70.5), (11.5, 66.0),
-          (39.0, 66.0), (21.0, 24.0), (21.0, 40.0), (35.0, 59.0), (12.0, 47.0)]
+          (39.0, 66.0), (21.0, 24.0), (21.0, 40.0), (35.0, 59.0), (12.0, 47.0),
+          (16.6, 47.2), (49.6, 24.0)]
 
 
 # Connector pin labels on the silkscreen, by pad number, in the strip between
@@ -195,8 +197,11 @@ def main(netlist):
         silk(board, text, x, y, rot)
     silk(board, "leels breakout rev A", 19.0, 35.0, 90, layer=pcbnew.B_SilkS)
     silk(board, "DevKitC-1 on top, USB down", 21.2, 35.0, 90, layer=pcbnew.B_SilkS)
-    # J5's title says what it is; its reference would sit on the pin labels.
-    board.FindFootprintByReference("J5").Reference().SetLayer(pcbnew.F_Fab)
+    # Connector titles say what each one is; their references would sit on
+    # the pin labels.
+    for ref in PIN_LABELS:
+        board.FindFootprintByReference(ref).Reference().SetLayer(pcbnew.F_Fab)
+    board.FindFootprintByReference("J6").Reference().SetLayer(pcbnew.F_Fab)
 
     # Stitching vias tie the top and bottom ground pours together, so no
     # pour island is left hanging off a single pad.
