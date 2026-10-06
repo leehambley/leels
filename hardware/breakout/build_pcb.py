@@ -47,8 +47,9 @@ PLACE = {
     "R7": (16.8, 59.0, 0),
     "R5": (27.0, 52.0, 0),
     "R6": (27.0, 55.5, 0),
-    "C1": (19.5, 45.2, 0),
-    "C2": (29.5, 45.9, 0),
+    # Capacitors are too tall for under the DevKit: below it, by the 5 V in.
+    "C1": (21.0, 63.5, 0),
+    "C2": (31.8, 63.5, 0),
     "D1": (25.0, 69.0, 0),
 }
 
@@ -58,12 +59,43 @@ STITCH = [(2.0, 10.0), (49.0, 10.0), (2.0, 70.0), (49.0, 70.5), (11.5, 66.0),
           (39.0, 66.0), (21.0, 24.0), (21.0, 40.0), (35.0, 59.0), (12.0, 47.0)]
 
 
+# Connector pin labels on the silkscreen, by pad number, in the strip between
+# each connector and the DevKit sockets: (x of the label column, labels).
+PIN_LABELS = {
+    "J3": (11.8, ["5V", "GND", "A", "B", "Z"]),
+    "J2": (39.1, ["5V", "STEP", "DIR", "ENA", "GND"]),
+    "J4": (39.1, ["+5V", "GND"]),
+    "J5": (41.6, ["5V", "GND", "RX", "TX"]),  # the display's pins
+}
+# (text, x, y, rotation)
+TITLES = [
+    ("ENCODER", 11.8, 15.6, 90),
+    ("SHIELD", 11.8, 56.1, 90),
+    ("SERVO", 39.1, 30.6, 90),
+    ("5V IN", 39.1, 71.0, 0),
+    ("NEXTION", 46.0, 15.4, 0),
+]
+
+
 # Reference text nudges where the body centre falls on a pad.
-LABEL_OFFSET = {"C2": (0, -3.4), "Q1": (-4.0, 0)}
+LABEL_OFFSET = {"C2": (3.8, 0), "Q1": (-4.0, 0)}
 
 
 def mm(v):
     return pcbnew.FromMM(v)
+
+
+def silk(board, text, x, y, rot, layer=pcbnew.F_SilkS):
+    t = pcbnew.PCB_TEXT(board)
+    t.SetText(text)
+    t.SetLayer(layer)
+    t.SetTextSize(pcbnew.VECTOR2I(mm(1.0), mm(1.0)))
+    t.SetTextThickness(mm(0.15))
+    t.SetTextAngleDegrees(rot)
+    t.SetPosition(pcbnew.VECTOR2I(mm(x), mm(y)))
+    if layer == pcbnew.B_SilkS:
+        t.SetMirrored(True)
+    board.Add(t)
 
 
 def load_fp(fpid):
@@ -150,6 +182,21 @@ def main(netlist):
         for px, py in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
             poly.Append(mm(px), mm(py))
         board.Add(zone)
+
+    for ref, (col, labels) in PIN_LABELS.items():
+        fp = board.FindFootprintByReference(ref)
+        for pad in fp.Pads():
+            text = labels[int(pad.GetNumber()) - 1]
+            y = pcbnew.ToMM(pad.GetPosition().y)
+            # J5's pins are 2.5 mm apart: horizontal labels; terminals are
+            # 5.08 mm apart: labels along the edge.
+            silk(board, text, col, y, 0 if ref == "J5" else 90)
+    for text, x, y, rot in TITLES:
+        silk(board, text, x, y, rot)
+    silk(board, "leels breakout rev A", 19.0, 35.0, 90, layer=pcbnew.B_SilkS)
+    silk(board, "DevKitC-1 on top, USB down", 21.2, 35.0, 90, layer=pcbnew.B_SilkS)
+    # J5's title says what it is; its reference would sit on the pin labels.
+    board.FindFootprintByReference("J5").Reference().SetLayer(pcbnew.F_Fab)
 
     # Stitching vias tie the top and bottom ground pours together, so no
     # pour island is left hanging off a single pad.
